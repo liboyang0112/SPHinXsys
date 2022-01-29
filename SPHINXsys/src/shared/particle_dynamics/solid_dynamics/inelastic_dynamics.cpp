@@ -13,11 +13,11 @@ namespace SPH
 	{
 		//=================================================================================================//
 		PlasticStressRelaxationFirstHalf::
-			PlasticStressRelaxationFirstHalf(BaseBodyRelationInner* body_inner_relation) :
-			StressRelaxationFirstHalf(body_inner_relation),
-			plastic_solid_(dynamic_cast<PlasticSolid*>(material_))
+			PlasticStressRelaxationFirstHalf(BaseBodyRelationInner &inner_relation) :
+			StressRelaxationFirstHalf(inner_relation),
+			plastic_solid_(DynamicCast<PlasticSolid>(this, material_))
 		{
-			numerical_dissipation_factor_ = 0.25;
+			numerical_dissipation_factor_ = 0.5;
 		}
 		//=================================================================================================//
 		void PlasticStressRelaxationFirstHalf::Initialization(size_t index_i, Real dt)
@@ -26,7 +26,7 @@ namespace SPH
 			F_[index_i] += dF_dt_[index_i] * dt * 0.5;
 			rho_n_[index_i] = rho0_ / SimTK::det(F_[index_i]);
 
-			stress_PK1_[index_i] = plastic_solid_->PlasticConstitutiveRelation(F_[index_i], index_i, dt) * B_[index_i];
+			stress_PK1_[index_i] = plastic_solid_->PlasticConstitutiveRelation(F_[index_i], index_i, dt);
 		}
 		//=================================================================================================//
 	}
