@@ -24,7 +24,7 @@ BoundingBox system_domain_bounds(Vec2d(-BW, -BW), Vec2d(DL + BW, DH + BW));
 
 /** Material properties. */
 Real diffusion_coff = 1.0e-3;
-Real bias_diffusion_coff = 0.0;
+Real bias_coff = 0.0;
 Real alpha = Pi / 6.0;
 Vec2d bias_direction(cos(alpha), sin(alpha));
 
@@ -33,6 +33,7 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 */
 Real phi_upper_wall = 20.0;
 Real phi_lower_wall = 40.0;
+Real phi_side_wall = 0;
 Real phi_fluid_initial = 20.0;
 Real phi_gas_initial = 10.0;
 
@@ -87,48 +88,9 @@ std::vector<Vecd> createInnerWallShape()
 	return inner_wall_shape;
 }
 /**
-*@brief 	Water body definition.
-*/
-class WaterBlock : public FluidBody
-{
-public:
-	WaterBlock(SPHSystem& sph_system, string body_name)
-		: FluidBody(sph_system, body_name, new ParticleAdaptation(1.3, 1))
-	{
-		/** Geomtry definition. */
-		std::vector<Vecd> water_block_shape = createWaterBlockShape();
-		body_shape_ = new ComplexShape(body_name);
-		body_shape_->addAPolygon(water_block_shape, ShapeBooleanOps::add);
-	}
-};
-/**
  * @brief 	Case dependent material properties definition.
  */
 
-
-/**
- * Setup heat conduction material properties for diffusion solid body
- */
-class ThermosolidBodyMaterial
-	: public DiffusionReactionMaterial<SolidParticles, Solid>
-{
-public:
-	ThermosolidBodyMaterial()
-		: DiffusionReactionMaterial<SolidParticles, Solid>()
-	{
-		//add a scalar for temperature in solid
-		insertASpecies("Phi");
-		assignDerivedMaterialParameters();
-		initializeDiffusion();
-	}
-	/** Initialize diffusion reaction material. */
-	virtual void initializeDiffusion() override {
-		DirectionalDiffusion*  phi_diffusion
-			= new DirectionalDiffusion(species_indexes_map_["Phi"], species_indexes_map_["Phi"],
-				diffusion_coff, bias_diffusion_coff, bias_direction);
-		species_diffusion_.push_back(phi_diffusion);
-	};
-};
 
 
 /**
@@ -147,15 +109,16 @@ protected:
 		{
 			species_n_[phi_][index_i] = phi_lower_wall;
 		}
-
-		if (DH <= pos_n_[index_i][1] && pos_n_[index_i][1] <= DH+BW)
+		else if (DH <= pos_n_[index_i][1] && pos_n_[index_i][1] <= DH+BW)
 		{
 			species_n_[phi_][index_i] = phi_upper_wall;
+		}else{
+			species_n_[phi_][index_i] = phi_side_wall;
 		}
 		
 	};
 public: 
-	ThermosolidBodyInitialCondition(SolidBody* diffusion_solid_body)
+	ThermosolidBodyInitialCondition(SolidBody &diffusion_solid_body)
 		: DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>(diffusion_solid_body) {
 		phi_ = material_->SpeciesIndexMap()["Phi"];
 	};
@@ -180,7 +143,7 @@ protected:
 
 	};
 public:
-	ThermofluidBodyInitialCondition(FluidBody* diffusion_fluid_body)
+	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body)
 		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, WeaklyCompressibleFluid >(diffusion_fluid_body) {
 		phi_ = material_->SpeciesIndexMap()["Phi"];
 	};
@@ -205,120 +168,134 @@ protected:
 
 	};
 public:
-	ThermogasBodyInitialCondition(FluidBody* diffusion_fluid_body)
+	ThermogasBodyInitialCondition(FluidBody &diffusion_fluid_body)
 		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, WeaklyCompressibleFluid >(diffusion_fluid_body) {
 		phi_ = material_->SpeciesIndexMap()["Phi"];
 	};
+};
+
+//----------------------------------------------------------------------
+//	An observer particle generator
+//----------------------------------------------------------------------
+class ObserverParticleGenerator : public ParticleGeneratorDirect
+{
+public:
+	ObserverParticleGenerator() : ParticleGeneratorDirect()
+	{
+		/** A measuring point at the center of the channel */
+		Vec2d point_coordinate(0.0, DH * 0.5);
+		positions_volumes_.push_back(std::make_pair(point_coordinate, 0.0));
+	}
 };
 
 /**
  *Set thermal relaxation between different bodies 
  */
 class ThermalRelaxationComplex
-	: public RelaxationOfAllDiffusionSpeciesRK2<FluidBody, FluidParticles, WeaklyCompressibleFluid,
-	RelaxationOfAllDiffussionSpeciesComplex<FluidBody, FluidParticles, WeaklyCompressibleFluid, SolidBody, SolidParticles, Solid>,
-	ComplexBodyRelation>
+	: public RelaxationOfAllDiffusionSpeciesRK2<
+		  FluidBody, FluidParticles, WeaklyCompressibleFluid,
+		  RelaxationOfAllDiffussionSpeciesComplex<
+			  FluidBody, FluidParticles, WeaklyCompressibleFluid, SolidBody, SolidParticles, Solid>,
+		  ComplexBodyRelation>
 {
 public:
-	ThermalRelaxationComplex(ComplexBodyRelation* body_complex_relation)
-		: RelaxationOfAllDiffusionSpeciesRK2(body_complex_relation) {};
-	virtual ~ThermalRelaxationComplex() {};
+	explicit ThermalRelaxationComplex(ComplexBodyRelation &body_complex_relation)
+		: RelaxationOfAllDiffusionSpeciesRK2(body_complex_relation){};
+	virtual ~ThermalRelaxationComplex(){};
 };
 
+/**
+*@brief 	Water body definition.
+*/
+class WaterBlock : public FluidBody
+{
+public:
+	WaterBlock(SPHSystem &sph_system, const string &body_name)
+		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
+	{
+		/** Geomtry definition. */
+		MultiPolygon multi_polygon;
+		multi_polygon.addAPolygon(createWaterBlockShape(), ShapeBooleanOps::add);
+		body_shape_.add<MultiPolygonShape>(multi_polygon);
+	}
+};
 /**
 *@brief 	Air body definition.
 */
 class AirBlock : public FluidBody
 {
 public:
-	AirBlock(SPHSystem& sph_system, std::string body_name)
-		: FluidBody(sph_system, body_name, new ParticleAdaptation(1.3, 1.0))
+	AirBlock(SPHSystem &sph_system, const std::string &body_name)
+		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
-		std::vector<Vecd> water_block_shape = createWaterBlockShape();
-		std::vector<Vecd> inner_wall_shape = createInnerWallShape();
-		body_shape_ = new ComplexShape(body_name);
-		body_shape_->addAPolygon(inner_wall_shape, ShapeBooleanOps::add);
-		body_shape_->addAPolygon(water_block_shape, ShapeBooleanOps::sub);
+		MultiPolygon multi_polygon;
+		multi_polygon.addAPolygon(createInnerWallShape(), ShapeBooleanOps::add);
+		multi_polygon.addAPolygon(createWaterBlockShape(), ShapeBooleanOps::sub);
+		body_shape_.add<MultiPolygonShape>(multi_polygon);
 	}
-};
-/**
- * @brief 	Case dependent material properties definition.
- */
-
-
-
-/**
- * Setup heat conduction material properties for diffusion fluid body 
- */
-
-
-
-class WaterMaterial
-	: public DiffusionReactionMaterial<FluidParticles, WeaklyCompressibleFluid>
-{
-public:
-	WaterMaterial()
-		: DiffusionReactionMaterial<FluidParticles, WeaklyCompressibleFluid>()
-	{
-		rho0_ = rho0_f;
-		c0_ = c_f;
-		mu_ = mu_f;
-
-		//add a scalar for temperature in fluid
-		insertASpecies("Phi");
-		assignDerivedMaterialParameters();
-		initializeDiffusion();
-	}
-	/** Initialize diffusion reaction material. */
-	virtual void initializeDiffusion() override {
-		DirectionalDiffusion* phi_diffusion
-			= new DirectionalDiffusion(species_indexes_map_["Phi"], species_indexes_map_["Phi"],
-				diffusion_coff, bias_diffusion_coff, bias_direction);
-		species_diffusion_.push_back(phi_diffusion);
-	};
-};
-
-
-class AirMaterial
-	: public DiffusionReactionMaterial<FluidParticles, WeaklyCompressibleFluid>
-{
-public:
-	AirMaterial()
-		: DiffusionReactionMaterial<FluidParticles, WeaklyCompressibleFluid>()
-	{
-		rho0_ = rho0_a;
-		c0_ = c_f;
-		mu_ = mu_a;
-
-		//add a scalar for temperature in fluid
-		insertASpecies("Phi");
-		assignDerivedMaterialParameters();
-		initializeDiffusion();
-	}
-	/** Initialize diffusion reaction material. */
-	virtual void initializeDiffusion() override {
-		DirectionalDiffusion* phi_diffusion
-			= new DirectionalDiffusion(species_indexes_map_["Phi"], species_indexes_map_["Phi"],
-				diffusion_coff, bias_diffusion_coff, bias_direction);
-		species_diffusion_.push_back(phi_diffusion);
-	};
 };
 
 /**
  * @brief 	Wall boundary body definition.
  */
+
 class WallBoundary : public SolidBody
 {
 public:
 	WallBoundary(SPHSystem& sph_system, string body_name)
-		: SolidBody(sph_system, body_name, new ParticleAdaptation(1.3, 1))
+		: SolidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
 		std::vector<Vecd> outer_shape = createOuterWallShape();
 		std::vector<Vecd> inner_shape = createInnerWallShape();
-		body_shape_ = new ComplexShape(body_name);
-		body_shape_->addAPolygon(outer_shape, ShapeBooleanOps::add);
-		body_shape_->addAPolygon(inner_shape, ShapeBooleanOps::sub);
+		MultiPolygon multi_polygon;
+		multi_polygon.addAPolygon(outer_shape, ShapeBooleanOps::add);
+		multi_polygon.addAPolygon(inner_shape, ShapeBooleanOps::sub);
+		body_shape_.add<MultiPolygonShape>(multi_polygon);
 	}
+};
+
+/**
+ * @brief 	Case dependent material properties definition.
+ */
+/**
+ * Setup heat conduction material properties for diffusion fluid body 
+ */
+
+class WaterMaterial
+	: public DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>
+{
+public:
+	WaterMaterial()
+		: DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>({"Phi"}, rho0_f, c_f, mu_f)
+	{
+		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
+	};
+};
+
+
+class AirMaterial
+	: public DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>
+{
+public:
+	AirMaterial()
+		: DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>({"Phi"}, rho0_a, c_f, mu_a)
+	{
+		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
+	};
+};
+
+/**
+ * Setup heat conduction material properties for diffusion solid body
+ */
+class WallMaterial
+	: public DiffusionReaction<SolidParticles, Solid>
+{
+public:
+	WallMaterial()
+		: DiffusionReaction<SolidParticles, Solid>({"Phi"})
+	{
+		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
+	};
 };
