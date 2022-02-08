@@ -16,7 +16,7 @@ using namespace SPH;
  */
 Real DL = 2.0; 							/**< Tank length. */
 Real DH = 1.0; 							/**< Tank height. */
-Real particle_spacing_ref = DL / 40.0; 	/**< Initial reference particle spacing. */
+Real particle_spacing_ref = DL / 60.0; 	/**< Initial reference particle spacing. */
 Real BW = particle_spacing_ref * 4; 	/**< Extending width for BCs. */
 /** Domain bounds of the system. */
 BoundingBox system_domain_bounds(Vec2d(-BW, -BW), Vec2d(DL + BW, DH + BW));
@@ -31,11 +31,11 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 /**
 *@brief Temperatures.
 */
-Real phi_upper_wall = 20.0;
+Real phi_upper_wall = 00.0;
 Real phi_lower_wall = 40.0;
 Real phi_side_wall = 0;
-Real phi_fluid_initial = 20.0;
-Real phi_gas_initial = 10.0;
+Real phi_fluid_initial = 40.0;
+Real phi_gas_initial = 40.0;
 
 /**
  * @brief Material properties of the fluid.
@@ -204,6 +204,20 @@ public:
 	virtual ~ThermalRelaxationComplex(){};
 };
 
+
+class ThermalRelaxationComplexWA
+	: public RelaxationOfAllDiffusionSpeciesRK2<
+		  FluidBody, FluidParticles, WeaklyCompressibleFluid,
+		  RelaxationOfAllDiffussionSpeciesComplex<
+			  FluidBody, FluidParticles, WeaklyCompressibleFluid, FluidBody, FluidParticles, WeaklyCompressibleFluid>,
+		  ComplexBodyRelation>
+{
+public:
+	explicit ThermalRelaxationComplexWA(ComplexBodyRelation &body_complex_relation)
+		: RelaxationOfAllDiffusionSpeciesRK2(body_complex_relation){};
+	virtual ~ThermalRelaxationComplexWA(){};
+};
+
 /**
 *@brief 	Water body definition.
 */
@@ -211,7 +225,7 @@ class WaterBlock : public FluidBody
 {
 public:
 	WaterBlock(SPHSystem &sph_system, const string &body_name)
-		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
+		: FluidBody(sph_system, body_name)//, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
 		MultiPolygon multi_polygon;
@@ -226,7 +240,7 @@ class AirBlock : public FluidBody
 {
 public:
 	AirBlock(SPHSystem &sph_system, const std::string &body_name)
-		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
+		: FluidBody(sph_system, body_name)//, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
 		MultiPolygon multi_polygon;
@@ -244,7 +258,7 @@ class WallBoundary : public SolidBody
 {
 public:
 	WallBoundary(SPHSystem& sph_system, string body_name)
-		: SolidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
+		: SolidBody(sph_system, body_name)//, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
 		std::vector<Vecd> outer_shape = createOuterWallShape();

@@ -52,10 +52,10 @@ int main()
 	BodyRelationInner solid_body_inner(wall_boundary);
 	ComplexBodyRelation water_air_complex(water_block, {&air_block});
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
-	BodyRelationContact water_wall_contact(water_block, { &wall_boundary });
+	BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
 	ComplexBodyRelation air_water_complex(air_block, { &water_block });
 	ComplexBodyRelation air_wall_complex(gas_body_inner, { &wall_boundary });
-	BodyRelationContact air_wall_contact(air_block, { &wall_boundary });
+	BaseBodyRelationContact &air_wall_contact = air_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});
 	/**
 	 * @brief 	Define all numerical methods which are used in this case.
@@ -79,7 +79,7 @@ int main()
 	GetDiffusionTimeStepSize<FluidBody, FluidParticles, WeaklyCompressibleFluid> get_thermal_time_step(water_block);
 	GetDiffusionTimeStepSize<FluidBody, FluidParticles, WeaklyCompressibleFluid> get_thermal_time_step_air(air_block);
 	/** Diffusion process between three diffusion bodies. */
-	//ThermalRelaxationComplex 	thermal_relaxation_complex_wa(water_air_complex);
+	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_aw(air_wall_complex);
 	/**
@@ -166,8 +166,8 @@ int main()
 	size_t number_of_iterations = sph_system.restart_step_;
 	int screen_output_interval = 100;
 	int restart_output_interval = screen_output_interval * 10;
-	Real End_Time = 500; 	/**< End time. */
-	Real D_Time = End_Time / 50;		/**< Time stamps for output of body states. */
+	Real End_Time = 50; 	/**< End time. */
+	Real D_Time = End_Time / 1000;		/**< Time stamps for output of body states. */
 	Real Dt = 0.0;			/**< Default advection time step sizes. */
 	Real dt = 0.0; 			/**< Default acoustic time step sizes. */
 	/** statistics for computing CPU time. */
@@ -251,11 +251,11 @@ int main()
 			
 			water_block.updateCellLinkedList();
 			water_air_complex.updateConfiguration();
-			water_wall_contact.updateConfiguration();
+			water_wall_complex.updateConfiguration();
 
 			air_block.updateCellLinkedList();
 			air_water_complex.updateConfiguration();
-			air_wall_contact.updateConfiguration();
+			air_wall_complex.updateConfiguration();
 
 			interval_updating_configuration += tick_count::now() - time_instance;
 		}
