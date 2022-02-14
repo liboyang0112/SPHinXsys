@@ -263,6 +263,7 @@ namespace SPH
 		size_t number_of_species_;
 		std::map<std::string, size_t> species_indexes_map_;
 		StdVec<BaseDiffusion *> species_diffusion_;
+		StdVec<size_t> species_diffusion_source_index_;
 		BaseReactionModel *species_reaction_;
 		DiffusionReactionParticles<BaseParticlesType, BaseMaterialType> *diffusion_reaction_particles_;
 
@@ -296,6 +297,7 @@ namespace SPH
 		size_t NumberOfSpecies() { return number_of_species_; };
 		size_t NumberOfSpeciesDiffusion() { return species_diffusion_.size(); };
 		StdVec<BaseDiffusion *> SpeciesDiffusion() { return species_diffusion_; };
+		StdVec<size_t> SpeciesDiffusionSourceIndex() { return species_diffusion_source_index_; };
 		BaseReactionModel *SpeciesReaction() { return species_reaction_; };
 		std::map<std::string, size_t> SpeciesIndexMap() { return species_indexes_map_; };
 		StdVec<std::string> getSpeciesNameList() { return species_name_list_; };
@@ -328,6 +330,11 @@ namespace SPH
 				diffusion_ptr_keeper_.createPtr<DiffusionType>(
 					species_indexes_map_[diffusion_species_name],
 					species_indexes_map_[diffusion_species_name], std::forward<ConstructorArgs>(args)...));
+		};
+
+		void initializeASource(const std::string &diffusion_species_name)
+		{
+			species_diffusion_source_index_.push_back(species_indexes_map_[diffusion_species_name]);
 		};
 
 		virtual DiffusionReaction<BaseParticlesType, BaseMaterialType> *

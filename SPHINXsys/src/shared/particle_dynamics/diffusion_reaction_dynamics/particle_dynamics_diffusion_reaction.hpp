@@ -34,9 +34,11 @@ namespace SPH
 		: InteractionDynamicsWithUpdate(*inner_relation.sph_body_),
 		  DiffusionReactionInnerData<BodyType, BaseParticlesType, BaseMaterialType>(inner_relation),
 		  species_n_(this->particles_->species_n_),
-		  diffusion_dt_(this->particles_->diffusion_dt_), Vol_(this->particles_->Vol_)
+		  diffusion_dt_(this->particles_->diffusion_dt_), Vol_(this->particles_->Vol_),
+		  diffusion_dt_prior_(this->particles_->diffusion_dt_prior_)
 	{
 		species_diffusion_ = this->material_->SpeciesDiffusion();
+		species_diffusion_source_index_ = this->material_->SpeciesDiffusionSourceIndex();
 	}
 	//=================================================================================================//
 	template <class BodyType, class BaseParticlesType, class BaseMaterialType>
@@ -46,6 +48,10 @@ namespace SPH
 		for (size_t m = 0; m < species_diffusion_.size(); ++m)
 		{
 			diffusion_dt_[m][particle_i] = 0;
+		}
+		for (int m = 0; m < species_diffusion_source_index_.size(); ++m)
+		{
+			diffusion_dt_[species_diffusion_source_index_[m]][particle_i] = diffusion_dt_prior_[m][particle_i];
 		}
 	}
 	//=================================================================================================//
@@ -79,7 +85,6 @@ namespace SPH
 	{
 		DiffusionReactionParticles<BaseParticlesType, BaseMaterialType> *particles = this->particles_;
 		Neighborhood &inner_neighborhood = this->inner_configuration_[index_i];
-
 		initializeDiffusionChangeRate(index_i);
 		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		{

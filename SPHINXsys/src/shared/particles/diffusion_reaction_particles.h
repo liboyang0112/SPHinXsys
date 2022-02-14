@@ -50,10 +50,12 @@ namespace SPH
 		size_t number_of_species_;			 /**< Total number of diffusion and reaction species . */
 		size_t number_of_diffusion_species_; /**< Total number of diffusion species . */
 		std::map<std::string, size_t> species_indexes_map_;
+		StdVec<size_t> species_diffusion_source_index_;
 
 	public:
 		StdVec<StdLargeVec<Real>> species_n_;	 /**< array of diffusion/reaction scalars */
 		StdVec<StdLargeVec<Real>> diffusion_dt_; /**< array of the time derivative of diffusion species */
+		StdVec<StdLargeVec<Real>> diffusion_dt_prior_; /**< array of the time derivative of diffusion species */
 
 		DiffusionReactionParticles(SPHBody &sph_body,
 								   SharedPtr<DiffusionReaction<BaseParticlesType, BaseMaterialType>> diffusion_reaction_material_ptr,
@@ -62,6 +64,7 @@ namespace SPH
 		{
 			diffusion_reaction_material_ptr->assignDiffusionReactionParticles(this);
 			species_indexes_map_ = diffusion_reaction_material_ptr->SpeciesIndexMap();
+			species_diffusion_source_index_ = diffusion_reaction_material_ptr->SpeciesDiffusionSourceIndex();
 			number_of_species_ = diffusion_reaction_material_ptr->NumberOfSpecies();
 			species_n_.resize(number_of_species_);
 
@@ -78,6 +81,7 @@ namespace SPH
 
 			number_of_diffusion_species_ = diffusion_reaction_material_ptr->NumberOfSpeciesDiffusion();
 			diffusion_dt_.resize(number_of_diffusion_species_);
+			diffusion_dt_prior_.resize(species_diffusion_source_index_.size());
 			for (size_t m = 0; m < number_of_diffusion_species_; ++m)
 			{
 				//----------------------------------------------------------------------
@@ -86,10 +90,18 @@ namespace SPH
 				std::get<indexScalar>(this->all_particle_data_).push_back(&diffusion_dt_[m]);
 				diffusion_dt_[m].resize(this->real_particles_bound_, Real(0));
 			}
+			for (size_t m = 0; m < species_diffusion_source_index_.size(); ++m)
+			{
+				//----------------------------------------------------------------------
+				//	register reactive change rate terms without giving variable name
+				//----------------------------------------------------------------------
+				diffusion_dt_prior_[m].resize(this->real_particles_bound_, Real(0));
+			}
 		};
 		virtual ~DiffusionReactionParticles(){};
 
 		std::map<std::string, size_t> SpeciesIndexMap() { return species_indexes_map_; };
+		StdVec<size_t> SpeciesDiffusionSourceIndex() { return species_diffusion_source_index_; };
 
 		virtual DiffusionReactionParticles<BaseParticlesType, BaseMaterialType> *
 		ThisObjectPtr() override { return this; };

@@ -14,6 +14,7 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
+const Real k_B = 1;
 Real DL = 2.0; 							/**< Tank length. */
 Real DH = 1.0; 							/**< Tank height. */
 Real particle_spacing_ref = DL / 60.0; 	/**< Initial reference particle spacing. */
@@ -27,14 +28,13 @@ Real diffusion_coff = 1.0e-3;
 Real bias_coff = 0.0;
 Real alpha = Pi / 6.0;
 Vec2d bias_direction(cos(alpha), sin(alpha));
-
 /**
 *@brief Temperatures.
 */
 Real phi_upper_wall = 00.0;
 Real phi_lower_wall = 40.0;
 Real phi_side_wall = 0;
-Real phi_fluid_initial = 40.0;
+Real phi_fluid_initial = 00.0;
 Real phi_gas_initial = 40.0;
 
 /**
@@ -42,13 +42,18 @@ Real phi_gas_initial = 40.0;
  */
 Real rho0_f = 1.0;					/**< Reference density of water. */
 Real rho0_a = 1.0e-3;				/**< Reference density of air. */
-Real gravity_g = 0.0;				/**< Gravity force of fluid. */
+Real gravity_g = 9.8;				/**< Gravity force of fluid. */
 Real U_max = 1.0;					/**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;			/**< Reference sound speed. */
 Real mu_f = 5.0e-2;					/**< Water viscosity. */
 Real mu_a = 5.0e-5;					/**< Air visocsity. */
 Real contact_angle = (150.0 / 180.0) * 3.1415926; 	/**< Contact angle with Wall. */
 Real tension_force = 0.008;
+/** vdW properties. */
+Real gamma_vdw=5./3;  //(dim+2)/dim
+Real rho0_vdw=rho0_f;  // molecule size
+Real alpha_vdw=0;  // attraction force
+Real molmass_vdw=18;
 /** create a water block shape */
 std::vector<Vecd> createWaterBlockShape()
 {
@@ -124,11 +129,46 @@ public:
 	};
 };
 
+class vdWFluid : public CompressibleFluid
+{
+protected:
+	Real alpha_, molmass_; // alpha is the attraction force
+public:
+	explicit vdWFluid(Real rho0, Real gamma, Real alpha, Real molmass, Real mu = 0.0) 
+	//rho0 is the density maximum
+		: CompressibleFluid(rho0, gamma, mu), alpha_(alpha), molmass_(molmass)
+	{
+		material_type_ = "vdWFluid";
+	};
+	virtual ~vdWFluid(){};
+	Real getAlpha(){ return alpha_; }
+	Real HeatCapacityRatio() { return gamma_; };
+	virtual Real getPressure(Real rho, Real T) override;
+	virtual Real getSoundSpeed(Real p, Real rho) override;
+	virtual vdWFluid *ThisObjectPtr() override { return this; };
+};
+
+Real vdWFluid::getPressure(Real rho, Real T)
+{
+	Real ratio = 1./(1-rho/rho0_);
+	rho = rho*1000/molmass_;  // convert mass density to mol density
+	return rho*8.314*T*ratio-alpha_/6.02214076e23*rho*rho;
+}
+
+Real vdWFluid::getSoundSpeed(Real p, Real rho)
+{
+	Real ratio = 1./(1-rho/rho0_);
+	rho = rho*1000/molmass_;
+	return sqrt(gamma_ * ratio * (alpha_ * rho + p / rho) - 2*alpha_*rho);
+}
+
+
+
 /**
  * application dependent fluid body initial condition
  */
 class ThermofluidBodyInitialCondition
-	: public  DiffusionReactionInitialCondition< FluidBody, FluidParticles, WeaklyCompressibleFluid>
+	: public  DiffusionReactionInitialCondition< FluidBody, CompressibleFluidParticles, vdWFluid>
 {
 protected:
 	size_t phi_;
@@ -144,7 +184,7 @@ protected:
 	};
 public:
 	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body)
-		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, WeaklyCompressibleFluid >(diffusion_fluid_body) {
+		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid >(diffusion_fluid_body) {
 		phi_ = material_->SpeciesIndexMap()["Phi"];
 	};
 };
@@ -153,7 +193,7 @@ public:
  * application dependent gas body initial condition
  */
 class ThermogasBodyInitialCondition
-	: public  DiffusionReactionInitialCondition< FluidBody, FluidParticles, WeaklyCompressibleFluid>
+	: public  DiffusionReactionInitialCondition< FluidBody, CompressibleFluidParticles, vdWFluid>
 {
 protected:
 	size_t phi_;
@@ -169,7 +209,7 @@ protected:
 	};
 public:
 	ThermogasBodyInitialCondition(FluidBody &diffusion_fluid_body)
-		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, WeaklyCompressibleFluid >(diffusion_fluid_body) {
+		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid >(diffusion_fluid_body) {
 		phi_ = material_->SpeciesIndexMap()["Phi"];
 	};
 };
@@ -193,9 +233,9 @@ public:
  */
 class ThermalRelaxationComplex
 	: public RelaxationOfAllDiffusionSpeciesRK2<
-		  FluidBody, FluidParticles, WeaklyCompressibleFluid,
+		  FluidBody, CompressibleFluidParticles, vdWFluid,
 		  RelaxationOfAllDiffussionSpeciesComplex<
-			  FluidBody, FluidParticles, WeaklyCompressibleFluid, SolidBody, SolidParticles, Solid>,
+			  FluidBody, CompressibleFluidParticles, vdWFluid, SolidBody, SolidParticles, Solid>,
 		  ComplexBodyRelation>
 {
 public:
@@ -207,9 +247,9 @@ public:
 
 class ThermalRelaxationComplexWA
 	: public RelaxationOfAllDiffusionSpeciesRK2<
-		  FluidBody, FluidParticles, WeaklyCompressibleFluid,
+		  FluidBody, FluidParticles, vdWFluid,
 		  RelaxationOfAllDiffussionSpeciesComplex<
-			  FluidBody, FluidParticles, WeaklyCompressibleFluid, FluidBody, FluidParticles, WeaklyCompressibleFluid>,
+			  FluidBody, FluidParticles, vdWFluid, FluidBody, FluidParticles, vdWFluid>,
 		  ComplexBodyRelation>
 {
 public:
@@ -276,7 +316,7 @@ public:
 /**
  * Setup heat conduction material properties for diffusion fluid body 
  */
-
+/*
 class WaterMaterial
 	: public DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>
 {
@@ -287,8 +327,21 @@ public:
 		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
 	};
 };
-
-
+ */
+class vdWMaterial
+	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
+{
+public:
+	vdWMaterial()
+		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"T"},
+			rho0_vdw, gamma_vdw, alpha_vdw, molmass_vdw, mu_f)
+	{
+		initializeAnDiffusion<DirectionalDiffusion>("T", "T",
+			diffusion_coff, bias_coff, bias_direction);
+		initializeASource("Phi");
+	};
+};
+/*
 class AirMaterial
 	: public DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>
 {
@@ -297,12 +350,14 @@ public:
 		: DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>({"Phi"}, rho0_a, c_f, mu_a)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
+		initializeASource("Phi");
 	};
 };
-
+*/
 /**
  * Setup heat conduction material properties for diffusion solid body
  */
+
 class WallMaterial
 	: public DiffusionReaction<SolidParticles, Solid>
 {
@@ -311,5 +366,173 @@ public:
 		: DiffusionReaction<SolidParticles, Solid>({"Phi"})
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
+		initializeASource("Phi");
 	};
 };
+
+
+class HeatSource // External heat source, laser for example
+{
+public:
+	HeatSource(){};
+	~HeatSource(){};
+	Real InducedHeating(Vecd& position){return 1;};
+};
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+class DiffusionSourceInitialization // Similar to TimeStepInitialization
+	: public ParticleDynamicsSimple,
+	  public DiffusionReactionSimpleData<BodyType, BaseParticlesType, BaseMaterialType>
+{
+private:
+	UniquePtrKeeper<HeatSource> heat_source_ptr_keeper_;
+	size_t source_index_;
+public:
+	DiffusionSourceInitialization(SPHBody &sph_body, HeatSource &heat_source, size_t source_index);
+	virtual ~DiffusionSourceInitialization(){};
+
+protected:
+	StdLargeVec<Vecd> &pos_n_;
+	StdVec<StdLargeVec<Real>>  &diffusion_dt_prior_;
+	HeatSource *heat_source_;
+	virtual void setupDynamics(Real dt = 0.0) override;
+	virtual void Update(size_t index_i, Real dt = 0.0) override;
+};
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+DiffusionSourceInitialization<BodyType, BaseParticlesType, BaseMaterialType>::DiffusionSourceInitialization(SPHBody &sph_body, HeatSource &heat_source, size_t source_index)
+	: ParticleDynamicsSimple(sph_body), DiffusionReactionSimpleData<BodyType, BaseParticlesType, BaseMaterialType>(sph_body),
+	  pos_n_(this->particles_->pos_n_), diffusion_dt_prior_(this->particles_->diffusion_dt_prior_),
+	  heat_source_(&heat_source), source_index_(source_index) {}
+//=================================================================================================//
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+void DiffusionSourceInitialization<BodyType, BaseParticlesType, BaseMaterialType>::setupDynamics(Real dt)
+{
+	this->particles_->total_ghost_particles_ = 0;
+}
+//=================================================================================================//
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+void DiffusionSourceInitialization<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
+{
+	diffusion_dt_prior_[source_index_][index_i] = heat_source_->InducedHeating(pos_n_[index_i]);
+}
+
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+class StressTensorHeatSource  // The Heat from viscous force and pressure, only inner forces are included.
+	: public InteractionDynamics,
+	  public DiffusionReactionInnerData<BodyType, BaseParticlesType, BaseMaterialType>
+{
+private:
+	size_t source_index_;
+public:
+	StressTensorHeatSource(BaseBodyRelationInner &inner_relation, size_t source_index_);
+	virtual ~StressTensorHeatSource(){};
+	AcousticRiemannSolver riemann_solver_;
+protected:
+	Real mu_;
+	Real smoothing_length_;
+	StdLargeVec<Real> &Vol_, &rho_n_, &p_;
+	StdVec<StdLargeVec<Real>> &diffusion_dt_prior_;
+	StdLargeVec<Vecd> &vel_n_;
+	virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+};
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::StressTensorHeatSource(BaseBodyRelationInner &inner_relation, size_t source_index)
+	: InteractionDynamics(*inner_relation.sph_body_),
+	  DiffusionReactionInnerData<BodyType, BaseParticlesType, BaseMaterialType>(inner_relation),
+	  Vol_(this->particles_->Vol_), rho_n_(this->particles_->rho_n_), p_(this->particles_->p_),
+	  vel_n_(this->particles_->vel_n_),
+	  mu_(this->material_->ReferenceViscosity()),
+	  smoothing_length_(sph_adaptation_->ReferenceSmoothingLength()),
+	  diffusion_dt_prior_(this->particles_->diffusion_dt_prior_),
+	  source_index_(source_index),
+	  riemann_solver_(*(this->material_), *(this->material_)) {}
+//=================================================================================================//
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Interaction(size_t index_i, Real dt)
+{
+	Real rho_i = rho_n_[index_i];
+	Real internalEnergyIncrease(0);
+	const Vecd &vel_i = vel_n_[index_i];
+	FluidState state_i(rho_n_[index_i], vel_n_[index_i], p_[index_i]);
+
+	Vecd vel_derivative(0);
+	Neighborhood &inner_neighborhood = this->inner_configuration_[index_i];
+	for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+	{
+		size_t index_j = inner_neighborhood.j_[n];
+		Real dW_ij = inner_neighborhood.dW_ij_[n];
+		Vecd& e_ij = inner_neighborhood.e_ij_[n];
+		Vecd vij = vel_i - vel_n_[index_j];
+		FluidState state_j(rho_n_[index_j], vel_n_[index_j], p_[index_j]);
+		Real p_star = riemann_solver_.getPStar(state_i, state_j, e_ij);
+		//pressure
+		internalEnergyIncrease += dot(2.0 * p_star * Vol_[index_j] * dW_ij * e_ij / rho_i,
+			vij);
+		//viscous
+		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
+		internalEnergyIncrease += dot(2.0 * mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i,
+			vij);
+	}
+	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease*2/3/k_B;
+}
+
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+class vdWAttractionHeatSource // The heat from vdW fluid "a" term
+	: public ParticleDynamicsSimple,
+	  public DiffusionReactionSimpleData<BodyType, BaseParticlesType, BaseMaterialType>
+{
+private:
+	size_t source_index_;
+public:
+	vdWAttractionHeatSource(SPHBody &sph_body, size_t source_index);
+	virtual ~vdWAttractionHeatSource(){};
+
+protected:
+	StdLargeVec<Real> &drho_dt_;
+	StdVec<StdLargeVec<Real>>  &diffusion_dt_prior_;
+	virtual void Update(size_t index_i, Real dt = 0.0) override;
+};
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttractionHeatSource(SPHBody &sph_body, size_t source_index)
+	: ParticleDynamicsSimple(sph_body), DiffusionReactionSimpleData<BodyType, BaseParticlesType, BaseMaterialType>(sph_body),
+	  drho_dt_(this->particles_->drho_dt_), diffusion_dt_prior_(this->particles_->diffusion_dt_prior_),
+	  source_index_(source_index) {}
+//=================================================================================================//
+
+template <class BodyType, class BaseParticlesType, class BaseMaterialType>
+void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
+{
+	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha()*drho_dt_[index_i]*2/3/k_B;
+}
+
+template <class ParticleType>
+class vdWPressureRelaxation :  // Put diffusion scalar into dynamics, (ParticleType*) is a bit dirty though.
+public fluid_dynamics::BasePressureRelaxation
+{
+protected:
+	StdLargeVec<Real> &species_n_k;
+public:
+	explicit vdWPressureRelaxation(BaseBodyRelationInner &inner_relation, size_t temperature_index) : 
+			BasePressureRelaxation(inner_relation), 
+			species_n_k(((ParticleType*)particles_)->species_n_[temperature_index]){};
+	virtual ~vdWPressureRelaxation(){};
+protected:
+	virtual void Initialization(size_t index_i, Real dt = 0.0) override;
+};
+
+template <class ParticleType>
+void vdWPressureRelaxation<ParticleType>::Initialization(size_t index_i, Real dt)
+{
+	rho_n_[index_i] += drho_dt_[index_i] * dt * 0.5;
+	Vol_[index_i] = mass_[index_i] / rho_n_[index_i];
+	p_[index_i] = material_->getPressure(rho_n_[index_i],species_n_k[index_i]);
+	pos_n_[index_i] += vel_n_[index_i] * dt * 0.5;
+}

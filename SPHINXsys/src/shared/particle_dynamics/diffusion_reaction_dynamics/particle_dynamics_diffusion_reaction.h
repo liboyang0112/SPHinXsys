@@ -106,13 +106,15 @@ namespace SPH
 	{
 		/** all diffusion species and diffusion relation. */
 		StdVec<BaseDiffusion *> species_diffusion_;
+		StdVec<size_t> species_diffusion_source_index_;
 		StdVec<StdLargeVec<Real>> &species_n_;
 		StdVec<StdLargeVec<Real>> &diffusion_dt_;
+		StdVec<StdLargeVec<Real>> &diffusion_dt_prior_;
 		StdLargeVec<Real> &Vol_;
 
 	protected:
-		void initializeDiffusionChangeRate(size_t particle_i);
-		void getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij);
+		virtual void initializeDiffusionChangeRate(size_t particle_i);
+		virtual void getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij);
 		virtual void updateSpeciesDiffusion(size_t particle_i, Real dt);
 		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
 		virtual void Update(size_t index_i, Real dt = 0.0) override;

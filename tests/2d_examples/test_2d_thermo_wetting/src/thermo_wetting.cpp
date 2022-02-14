@@ -30,12 +30,12 @@ int main()
 	 */
 
 	AirBlock air_block(sph_system, "AirBody");
-	DiffusionReactionParticles<FluidParticles, WeaklyCompressibleFluid>
-		diffusion_gas_body_particles(air_block, makeShared<AirMaterial>());
+	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
+		diffusion_gas_body_particles(air_block, makeShared<vdWMaterial>());
 
 	WaterBlock water_block(sph_system, "WaterBody");
-	DiffusionReactionParticles<FluidParticles, WeaklyCompressibleFluid>
-		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>());
+	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
+		diffusion_fluid_body_particles(water_block, makeShared<vdWMaterial>());
 
 	WallBoundary wall_boundary(sph_system, "Wall");
 	DiffusionReactionParticles<SolidParticles, Solid>
@@ -62,22 +62,29 @@ int main()
 	 */
 	 /** Define external force. */
 	Gravity		gravity(Vecd(0.0, -gravity_g));
+	HeatSource heat_source;
 	/**
 	 * @brief 	Methods used for time stepping.
 	 */
 	 /** Initialize particle acceleration. */
 	ThermosolidBodyInitialCondition thermosolid_condition(wall_boundary);
-	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block);
 	ThermogasBodyInitialCondition thermogas_initial_condition(air_block);
+	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block);
 
 	TimeStepInitialization		initialize_a_water_step(water_block, gravity);
 	TimeStepInitialization		initialize_a_air_step(air_block, gravity);
 
+	DiffusionSourceInitialization<FluidBody, CompressibleFluidParticles, vdWFluid> initialize_a_air_step_thermo(air_block, heat_source, 0);
+	DiffusionSourceInitialization<FluidBody, CompressibleFluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
+	StressTensorHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  stress_tensor_heat_air(gas_body_inner, 0);
+	StressTensorHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
+	vdWAttractionHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  vdW_attr_heat_air(air_block, 0);
+	vdWAttractionHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
 	/** Corrected strong configuration for diffusion solid body. */
 	solid_dynamics::CorrectConfiguration 			correct_configuration(solid_body_inner);
 	/** Time step size calculation. */
-	GetDiffusionTimeStepSize<FluidBody, FluidParticles, WeaklyCompressibleFluid> get_thermal_time_step(water_block);
-	GetDiffusionTimeStepSize<FluidBody, FluidParticles, WeaklyCompressibleFluid> get_thermal_time_step_air(air_block);
+	GetDiffusionTimeStepSize<FluidBody, CompressibleFluidParticles, vdWFluid> get_thermal_time_step(water_block);
+	GetDiffusionTimeStepSize<FluidBody, CompressibleFluidParticles, vdWFluid> get_thermal_time_step_air(air_block);
 	/** Diffusion process between three diffusion bodies. */
 	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
@@ -211,6 +218,12 @@ int main()
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
+			initialize_a_air_step_thermo.parallel_exec();
+			initialize_a_water_step_thermo.parallel_exec();
+			stress_tensor_heat_air.parallel_exec();
+			stress_tensor_heat_water.parallel_exec();
+			vdW_attr_heat_air.parallel_exec();
+			vdW_attr_heat_water.parallel_exec();
 			/** Dynamics including pressure relaxation. */
 			time_instance = tick_count::now();
 			Real relaxation_time = 0.0;
