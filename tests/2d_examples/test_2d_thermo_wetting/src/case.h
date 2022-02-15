@@ -14,7 +14,7 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
-const Real k_B = 1;
+const Real k_B = 3.285e4;
 Real DL = 2.0; 							/**< Tank length. */
 Real DH = 1.0; 							/**< Tank height. */
 Real particle_spacing_ref = DL / 60.0; 	/**< Initial reference particle spacing. */
@@ -34,13 +34,13 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 Real phi_upper_wall = 00.0;
 Real phi_lower_wall = 40.0;
 Real phi_side_wall = 0;
-Real phi_fluid_initial = 00.0;
-Real phi_gas_initial = 40.0;
+Real phi_fluid_initial = 0.6;
+Real phi_gas_initial = 0.6;
 
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 1.0;					/**< Reference density of water. */
+Real rho0_f = 1.4;					/**< Reference density of water. */
 Real rho0_a = 1.0e-3;				/**< Reference density of air. */
 Real gravity_g = 9.8;				/**< Gravity force of fluid. */
 Real U_max = 1.0;					/**< Characteristic velocity. */
@@ -50,10 +50,11 @@ Real mu_a = 5.0e-5;					/**< Air visocsity. */
 Real contact_angle = (150.0 / 180.0) * 3.1415926; 	/**< Contact angle with Wall. */
 Real tension_force = 0.008;
 /** vdW properties. */
-Real gamma_vdw=5./3;  //(dim+2)/dim
-Real rho0_vdw=rho0_f;  // molecule size
-Real alpha_vdw=0;  // attraction force
-Real molmass_vdw=18;
+Real gamma_vdw=7./5;  //(dim+2)/dim
+Real rho0_water=1./0.5824;  // molecule size
+Real alpha_water=7.438e4;  // attraction force
+Real molmass_water=18;
+Real molmass_air=27;
 /** create a water block shape */
 std::vector<Vecd> createWaterBlockShape()
 {
@@ -132,11 +133,11 @@ public:
 class vdWFluid : public CompressibleFluid
 {
 protected:
-	Real alpha_, molmass_; // alpha is the attraction force
+	Real alpha_, molmass_, rho_max_; // alpha is the attraction force
 public:
-	explicit vdWFluid(Real rho0, Real gamma, Real alpha, Real molmass, Real mu = 0.0) 
+	explicit vdWFluid(Real rho0, Real rho_max, Real gamma, Real alpha, Real molmass, Real mu = 0.0) 
 	//rho0 is the density maximum
-		: CompressibleFluid(rho0, gamma, mu), alpha_(alpha), molmass_(molmass)
+		: CompressibleFluid(rho0, gamma, mu), alpha_(alpha), molmass_(molmass), rho_max_(rho_max)
 	{
 		material_type_ = "vdWFluid";
 	};
@@ -150,15 +151,15 @@ public:
 
 Real vdWFluid::getPressure(Real rho, Real T)
 {
-	Real ratio = 1./(1-rho/rho0_);
-	rho = rho*1000/molmass_;  // convert mass density to mol density
-	return rho*8.314*T*ratio-alpha_/6.02214076e23*rho*rho;
+	Real ratio = 1./(1-rho/rho_max_);
+	printf("rho=%f, T=%f, pressure=%f\n", rho, T, rho*k_B*T*ratio-alpha_*rho*rho);
+	return rho*k_B*T*ratio-alpha_*rho*rho;
 }
 
 Real vdWFluid::getSoundSpeed(Real p, Real rho)
 {
-	Real ratio = 1./(1-rho/rho0_);
-	rho = rho*1000/molmass_;
+	Real ratio = 1./(1-rho/rho_max_);
+	printf("p=%f, rho=%f, Sound speed2= %f-%f\n", p,rho,gamma_ * ratio * (alpha_ * rho + p / rho), 2*alpha_*rho);
 	return sqrt(gamma_ * ratio * (alpha_ * rho + p / rho) - 2*alpha_*rho);
 }
 
@@ -328,13 +329,27 @@ public:
 	};
 };
  */
-class vdWMaterial
+class WaterMaterial
 	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
 {
 public:
-	vdWMaterial()
+	WaterMaterial()
 		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"T"},
-			rho0_vdw, gamma_vdw, alpha_vdw, molmass_vdw, mu_f)
+			rho0_f, rho0_water, gamma_vdw, alpha_water, molmass_water, mu_f)
+	{
+		initializeAnDiffusion<DirectionalDiffusion>("T", "T",
+			diffusion_coff, bias_coff, bias_direction);
+		initializeASource("Phi");
+	};
+};
+
+class AirMaterial
+	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
+{
+public:
+	AirMaterial()
+		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"T"},
+			1e-3, 1.4, gamma_vdw, 0, molmass_air, mu_f)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("T", "T",
 			diffusion_coff, bias_coff, bias_direction);
@@ -513,26 +528,26 @@ void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Upd
 	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha()*drho_dt_[index_i]*2/3/k_B;
 }
 
-template <class ParticleType>
-class vdWPressureRelaxation :  // Put diffusion scalar into dynamics, (ParticleType*) is a bit dirty though.
-public fluid_dynamics::BasePressureRelaxation
+template <class ParticleType, class RiemannSolverType>
+class vdWPressureRelaxationInner :  // Put diffusion scalar into dynamics, (ParticleType*) is a bit dirty though.
+public fluid_dynamics::BasePressureRelaxationInner<RiemannSolverType>
 {
 protected:
 	StdLargeVec<Real> &species_n_k;
 public:
-	explicit vdWPressureRelaxation(BaseBodyRelationInner &inner_relation, size_t temperature_index) : 
-			BasePressureRelaxation(inner_relation), 
-			species_n_k(((ParticleType*)particles_)->species_n_[temperature_index]){};
-	virtual ~vdWPressureRelaxation(){};
+	explicit vdWPressureRelaxationInner(BaseBodyRelationInner &inner_relation, size_t temperature_index = 0) : 
+			fluid_dynamics::BasePressureRelaxationInner<RiemannSolverType>(inner_relation), 
+			species_n_k(((ParticleType*)(this->particles_))->species_n_[temperature_index]){};
+	virtual ~vdWPressureRelaxationInner(){};
 protected:
 	virtual void Initialization(size_t index_i, Real dt = 0.0) override;
 };
 
-template <class ParticleType>
-void vdWPressureRelaxation<ParticleType>::Initialization(size_t index_i, Real dt)
+template <class ParticleType, class RiemannSolverType>
+void vdWPressureRelaxationInner<ParticleType, RiemannSolverType>::Initialization(size_t index_i, Real dt)
 {
-	rho_n_[index_i] += drho_dt_[index_i] * dt * 0.5;
-	Vol_[index_i] = mass_[index_i] / rho_n_[index_i];
-	p_[index_i] = material_->getPressure(rho_n_[index_i],species_n_k[index_i]);
-	pos_n_[index_i] += vel_n_[index_i] * dt * 0.5;
+	this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
+	this->Vol_[index_i] = this->mass_[index_i] / this->rho_n_[index_i];
+	this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i],species_n_k[index_i]);
+	this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
 }

@@ -31,11 +31,11 @@ int main()
 
 	AirBlock air_block(sph_system, "AirBody");
 	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-		diffusion_gas_body_particles(air_block, makeShared<vdWMaterial>());
+		diffusion_gas_body_particles(air_block, makeShared<AirMaterial>());
 
 	WaterBlock water_block(sph_system, "WaterBody");
 	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-		diffusion_fluid_body_particles(water_block, makeShared<vdWMaterial>());
+		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>());
 
 	WallBoundary wall_boundary(sph_system, "Wall");
 	DiffusionReactionParticles<SolidParticles, Solid>
@@ -106,12 +106,14 @@ int main()
 	fluid_dynamics::AcousticTimeStepSize get_water_time_step_size(water_block);
 	fluid_dynamics::AcousticTimeStepSize get_air_time_step_size(air_block);
 	/** Pressure relaxation for water by using position verlet time stepping. */
-	fluid_dynamics::PressureRelaxationRiemannWithWall 
+	using vdWPressureRelaxationRiemannWithWall = fluid_dynamics::BasePressureRelaxationWithWall<fluid_dynamics::PressureRelaxation<vdWPressureRelaxationInner<DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>,AcousticRiemannSolver>>>;
+	vdWPressureRelaxationRiemannWithWall 
 		water_pressure_relaxation(water_air_complex.inner_relation_, water_wall_contact);
 	fluid_dynamics::DensityRelaxationRiemannWithWall 
 		water_density_relaxation(water_air_complex.inner_relation_, water_wall_contact);
 	/** Extend Pressure relaxation is used for air. */
-	fluid_dynamics::ExtendMultiPhasePressureRelaxationRiemannWithWall
+	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = fluid_dynamics::ExtendPressureRelaxationWithWall<fluid_dynamics::ExtendPressureRelaxation<fluid_dynamics::BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>,AcousticRiemannSolver>>>>;
+	vdWExtendMultiPhasePressureRelaxationRiemannWithWall
 		air_pressure_relaxation(air_water_complex, air_wall_contact, 2.0);
 	fluid_dynamics::MultiPhaseDensityRelaxationRiemannWithWall
 		air_density_relaxation(air_water_complex, air_wall_contact);
@@ -213,8 +215,8 @@ int main()
 			surface_detection.parallel_exec();
 			color_gradient.parallel_exec();
 			color_gradient_interpolation.parallel_exec();
-			wetting_norm.parallel_exec();
-			surface_tension_acceleration.parallel_exec();
+			//wetting_norm.parallel_exec();
+			//surface_tension_acceleration.parallel_exec();
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
@@ -232,8 +234,9 @@ int main()
 				Real dt_f = get_water_time_step_size.parallel_exec();
 				Real dt_a = get_air_time_step_size.parallel_exec();
 				dt = SMIN(SMIN(SMIN(dt_f, dt_a), Dt),dt_thermal);
-
+				printf("water now\n");
 				water_pressure_relaxation.parallel_exec(dt);
+				printf("air now\n");
 				air_pressure_relaxation.parallel_exec(dt);
 
 				water_density_relaxation.parallel_exec(dt);
