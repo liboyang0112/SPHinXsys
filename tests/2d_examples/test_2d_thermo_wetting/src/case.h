@@ -42,7 +42,7 @@ Real phi_gas_initial = 0.6;
  */
 Real rho0_f = 1.4;					/**< Reference density of water. */
 Real rho0_a = 1.0e-3;				/**< Reference density of air. */
-Real gravity_g = 9.8;				/**< Gravity force of fluid. */
+Real gravity_g = 9.8/2.81/1e9;				/**< Gravity force of fluid. */
 Real U_max = 1.0;					/**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;			/**< Reference sound speed. */
 Real mu_f = 5.0e-2;					/**< Water viscosity. */
@@ -126,7 +126,7 @@ protected:
 public: 
 	ThermosolidBodyInitialCondition(SolidBody &diffusion_solid_body)
 		: DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>(diffusion_solid_body) {
-		phi_ = material_->SpeciesIndexMap()["Phi"];
+		phi_ = material_->SpeciesIndexMap()["Temperature"];
 	};
 };
 
@@ -144,6 +144,7 @@ public:
 	virtual ~vdWFluid(){};
 	Real getAlpha(){ return alpha_; }
 	Real HeatCapacityRatio() { return gamma_; };
+	virtual Real DensityFromPT(Real p, Real T) {};
 	virtual Real getPressure(Real rho, Real T) override;
 	virtual Real getSoundSpeed(Real p, Real rho) override;
 	virtual vdWFluid *ThisObjectPtr() override { return this; };
@@ -152,14 +153,12 @@ public:
 Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1./(1-rho/rho_max_);
-	printf("rho=%f, T=%f, pressure=%f\n", rho, T, rho*k_B*T*ratio-alpha_*rho*rho);
 	return rho*k_B*T*ratio-alpha_*rho*rho;
 }
 
 Real vdWFluid::getSoundSpeed(Real p, Real rho)
 {
 	Real ratio = 1./(1-rho/rho_max_);
-	printf("p=%f, rho=%f, Sound speed2= %f-%f\n", p,rho,gamma_ * ratio * (alpha_ * rho + p / rho), 2*alpha_*rho);
 	return sqrt(gamma_ * ratio * (alpha_ * rho + p / rho) - 2*alpha_*rho);
 }
 
@@ -186,7 +185,7 @@ protected:
 public:
 	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body)
 		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid >(diffusion_fluid_body) {
-		phi_ = material_->SpeciesIndexMap()["Phi"];
+		phi_ = material_->SpeciesIndexMap()["Temperature"];
 	};
 };
 
@@ -211,7 +210,7 @@ protected:
 public:
 	ThermogasBodyInitialCondition(FluidBody &diffusion_fluid_body)
 		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid >(diffusion_fluid_body) {
-		phi_ = material_->SpeciesIndexMap()["Phi"];
+		phi_ = material_->SpeciesIndexMap()["Temperature"];
 	};
 };
 
@@ -334,12 +333,12 @@ class WaterMaterial
 {
 public:
 	WaterMaterial()
-		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"T"},
+		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
 			rho0_f, rho0_water, gamma_vdw, alpha_water, molmass_water, mu_f)
 	{
-		initializeAnDiffusion<DirectionalDiffusion>("T", "T",
+		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
 			diffusion_coff, bias_coff, bias_direction);
-		initializeASource("Phi");
+		initializeASource("Temperature");
 	};
 };
 
@@ -348,12 +347,12 @@ class AirMaterial
 {
 public:
 	AirMaterial()
-		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"T"},
-			1e-3, 1.4, gamma_vdw, 0, molmass_air, mu_f)
+		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
+			1e-3, 1.4, gamma_vdw, 0, molmass_air, mu_a)
 	{
-		initializeAnDiffusion<DirectionalDiffusion>("T", "T",
+		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
 			diffusion_coff, bias_coff, bias_direction);
-		initializeASource("Phi");
+		initializeASource("Temperature");
 	};
 };
 /*
@@ -378,10 +377,10 @@ class WallMaterial
 {
 public:
 	WallMaterial()
-		: DiffusionReaction<SolidParticles, Solid>({"Phi"})
+		: DiffusionReaction<SolidParticles, Solid>({"Temperature"})
 	{
-		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
-		initializeASource("Phi");
+		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature", diffusion_coff, bias_coff, bias_direction);
+		initializeASource("Temperature");
 	};
 };
 
@@ -445,7 +444,7 @@ private:
 public:
 	StressTensorHeatSource(BaseBodyRelationInner &inner_relation, size_t source_index_);
 	virtual ~StressTensorHeatSource(){};
-	AcousticRiemannSolver riemann_solver_;
+	NoRiemannSolver riemann_solver_;
 protected:
 	Real mu_;
 	Real smoothing_length_;
@@ -528,26 +527,96 @@ void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Upd
 	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha()*drho_dt_[index_i]*2/3/k_B;
 }
 
-template <class ParticleType, class RiemannSolverType>
-class vdWPressureRelaxationInner :  // Put diffusion scalar into dynamics, (ParticleType*) is a bit dirty though.
-public fluid_dynamics::BasePressureRelaxationInner<RiemannSolverType>
+namespace SPH::fluid_dynamics{
+
+template <class RiemannSolverType>
+class vdWPressureRelaxationInner :
+public BasePressureRelaxationInner<RiemannSolverType>
 {
 protected:
-	StdLargeVec<Real> &species_n_k;
+	StdLargeVec<Real> &temperature_;
 public:
-	explicit vdWPressureRelaxationInner(BaseBodyRelationInner &inner_relation, size_t temperature_index = 0) : 
-			fluid_dynamics::BasePressureRelaxationInner<RiemannSolverType>(inner_relation), 
-			species_n_k(((ParticleType*)(this->particles_))->species_n_[temperature_index]){};
+	explicit vdWPressureRelaxationInner(BaseBodyRelationInner &inner_relation) : 
+			BasePressureRelaxationInner<RiemannSolverType>(inner_relation), 
+			temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
 	virtual ~vdWPressureRelaxationInner(){};
 protected:
 	virtual void Initialization(size_t index_i, Real dt = 0.0) override;
 };
 
-template <class ParticleType, class RiemannSolverType>
-void vdWPressureRelaxationInner<ParticleType, RiemannSolverType>::Initialization(size_t index_i, Real dt)
+template <class RiemannSolverType>
+void vdWPressureRelaxationInner<RiemannSolverType>::Initialization(size_t index_i, Real dt)
 {
 	this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
 	this->Vol_[index_i] = this->mass_[index_i] / this->rho_n_[index_i];
-	this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i],species_n_k[index_i]);
+	this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i],temperature_[index_i]);
 	this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
+}
+
+template <class BaseDensityRelaxationType>
+class vdWDensityRelaxation : public BaseDensityRelaxationWithWall<BaseDensityRelaxationType>
+{
+	
+protected:
+	StdLargeVec<Real> &temperature_;
+	virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+public:
+	vdWDensityRelaxation(ComplexBodyRelation &fluid_wall_relation)
+	: BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_wall_relation),
+	temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])) 
+	{}
+	vdWDensityRelaxation(BaseBodyRelationInner &fluid_inner_relation,
+									BaseBodyRelationContact &wall_contact_relation)
+	:BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_inner_relation,wall_contact_relation),
+	temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])) 
+	{}
+	vdWDensityRelaxation(ComplexBodyRelation &fluid_complex_relation,
+									BaseBodyRelationContact &wall_contact_relation)
+	:BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_complex_relation,wall_contact_relation),
+	temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])) 
+	{}
+	virtual ~vdWDensityRelaxation(){};
+};
+//=================================================================================================//
+
+template <class BaseDensityRelaxationType>
+void vdWDensityRelaxation<BaseDensityRelaxationType>::Interaction(size_t index_i, Real dt)
+{
+	BaseDensityRelaxationType::Interaction(index_i, dt);
+
+	FluidState state_i(this->rho_n_[index_i], this->vel_n_[index_i], this->p_[index_i]);
+	Real density_change_rate = 0.0;
+	for (size_t k = 0; k < FluidWallData::contact_configuration_.size(); ++k)
+	{
+		Vecd &dvel_dt_prior_i = this->dvel_dt_prior_[index_i];
+
+		StdLargeVec<Real> &Vol_k = *(this->wall_Vol_[k]);
+		StdLargeVec<Vecd> &vel_ave_k = *(this->wall_vel_ave_[k]);
+		StdLargeVec<Vecd> &dvel_dt_ave_k = *(this->wall_dvel_dt_ave_[k]);
+		StdLargeVec<Vecd> &n_k = *(this->wall_n_[k]);
+		Neighborhood &wall_neighborhood = (*FluidWallData::contact_configuration_[k])[index_i];
+		for (size_t n = 0; n != wall_neighborhood.current_size_; ++n)
+		{
+			size_t index_j = wall_neighborhood.j_[n];
+			Vecd &e_ij = wall_neighborhood.e_ij_[n];
+			Real r_ij = wall_neighborhood.r_ij_[n];
+			Real dW_ij = wall_neighborhood.dW_ij_[n];
+
+			Real face_wall_external_acceleration = dot((dvel_dt_prior_i - dvel_dt_ave_k[index_j]), -e_ij);
+			Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
+			Real dp = state_i.rho_ * r_ij * SMAX(0.0, face_wall_external_acceleration);
+			Real p_in_wall = state_i.p_ + dp;
+			Real rho_in_wall = state_i.rho_ + dp/this->material_->getSoundSpeed(state_i.p_ + 0.5*dp, temperature_[index_i]); //sound speed = dp/drho
+			FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
+			Vecd vel_star = this->riemann_solver_.getVStar(state_i, state_j, n_k[index_j]);
+			density_change_rate += 2.0 * state_i.rho_ * Vol_k[index_j] * dot(state_i.vel_ - vel_star, e_ij) * dW_ij;
+		}
+	}
+	this->drho_dt_[index_i] += density_change_rate;
+}
+	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<PressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
+	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<DensityRelaxationRiemannInner>;
+	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = ExtendPressureRelaxationWithWall<ExtendPressureRelaxation<BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
+	using vdWMultiPhaseDensityRelaxationRiemannWithWall = vdWDensityRelaxation<MultiPhaseDensityRelaxationRiemann>;
+
 }
