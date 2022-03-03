@@ -10,7 +10,7 @@ using namespace SPH;   // Namespace cite here.
 //----------------------------------------------------------------------
 Real DL = 2.0;						   /**< Tank length. */
 Real DH = 1.0;						   /**< Tank height. */
-Real particle_spacing_ref = DL / 40.0; /**< Initial reference particle spacing. */
+Real particle_spacing_ref = DL / 60.0; /**< Initial reference particle spacing. */
 Real BW = particle_spacing_ref * 4;	   /**< Extending width for BCs. */
 /** Domain bounds of the system. */
 BoundingBox system_domain_bounds(Vec2d(-BW, -BW), Vec2d(DL + BW, DH + BW));

@@ -14,7 +14,7 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
-const Real k_B = 3.285e4;
+const Real R = 8.314;
 Real DL = 2.0; 							/**< Tank length. */
 Real DH = 1.0; 							/**< Tank height. */
 Real particle_spacing_ref = DL / 60.0; 	/**< Initial reference particle spacing. */
@@ -31,30 +31,30 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 /**
 *@brief Temperatures.
 */
-Real phi_upper_wall = 00.0;
-Real phi_lower_wall = 40.0;
-Real phi_side_wall = 0;
-Real phi_fluid_initial = 0.6;
-Real phi_gas_initial = 0.6;
+Real phi_upper_wall = 200;
+Real phi_lower_wall = 500;
+Real phi_side_wall = 200;
+Real phi_fluid_initial = 373.15;
+Real phi_gas_initial = 295;
 
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 1.4;					/**< Reference density of water. */
-Real rho0_a = 1.0e-3;				/**< Reference density of air. */
-Real gravity_g = 9.8/2.81/1e9;				/**< Gravity force of fluid. */
-Real U_max = 1.0;					/**< Characteristic velocity. */
+Real rho0_f = 1000;					/**< Reference density of water. */
+Real rho0_a = 1.100859077806;				/**< Reference density of air. */
+Real gravity_g = 9.8;				/**< Gravity force of fluid. */
+Real U_max = 1.0;				/**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;			/**< Reference sound speed. */
-Real mu_f = 5.0e-2;					/**< Water viscosity. */
+Real mu_f = 1.0e-3 ;					/**< Water viscosity. */
 Real mu_a = 5.0e-5;					/**< Air visocsity. */
 Real contact_angle = (150.0 / 180.0) * 3.1415926; 	/**< Contact angle with Wall. */
 Real tension_force = 0.008;
 /** vdW properties. */
 Real gamma_vdw=7./5;  //(dim+2)/dim
-Real rho0_water=1./0.5824;  // molecule size
-Real alpha_water=7.438e4;  // attraction force
-Real molmass_water=18;
-Real molmass_air=27;
+Real rho0_water=1279.5787058;  // max density kg/m3
+Real alpha_water=2.555813e-01;  // attraction force
+Real molmass_water=18e-3;  // kg/mol
+Real molmass_air=27e-3;
 /** create a water block shape */
 std::vector<Vecd> createWaterBlockShape()
 {
@@ -132,8 +132,6 @@ public:
 
 class vdWFluid : public CompressibleFluid
 {
-protected:
-	Real alpha_, molmass_, rho_max_; // alpha is the attraction force
 public:
 	explicit vdWFluid(Real rho0, Real rho_max, Real gamma, Real alpha, Real molmass, Real mu = 0.0) 
 	//rho0 is the density maximum
@@ -141,6 +139,7 @@ public:
 	{
 		material_type_ = "vdWFluid";
 	};
+	Real alpha_, molmass_, rho_max_; // alpha is the attraction force
 	virtual ~vdWFluid(){};
 	Real getAlpha(){ return alpha_; }
 	Real HeatCapacityRatio() { return gamma_; };
@@ -153,13 +152,29 @@ public:
 Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1./(1-rho/rho_max_);
-	return rho*k_B*T*ratio-alpha_*rho*rho;
+	Real rhomol = rho/molmass_;
+	Real ret = rhomol*R*T*ratio-alpha_*rhomol*rhomol;
+	if(ret!=ret){
+		printf("WARNING: Pressure is NAN");
+		exit(0);
+	}
+	if(ret<-100000){
+		ret = -100000;
+		//printf("WARNING: Pressure is negative");
+	}
+	return ret;
 }
 
 Real vdWFluid::getSoundSpeed(Real p, Real rho)
 {
 	Real ratio = 1./(1-rho/rho_max_);
-	return sqrt(gamma_ * ratio * (alpha_ * rho + p / rho) - 2*alpha_*rho);
+	Real rhomol = rho/molmass_;
+	Real ret = sqrt(fabs(gamma_ * ratio * (alpha_ * rhomol + p / rhomol) - 2*alpha_*rhomol));
+	if(ret!=ret){
+		printf("WARNING: Sound Speed is NAN");
+		exit(0);
+	}
+	return ret;
 }
 
 
@@ -348,7 +363,7 @@ class AirMaterial
 public:
 	AirMaterial()
 		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
-			1e-3, 1.4, gamma_vdw, 0, molmass_air, mu_a)
+			rho0_a, 800, gamma_vdw, 0, molmass_air, mu_a)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
 			diffusion_coff, bias_coff, bias_direction);
@@ -487,13 +502,13 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		Real p_star = riemann_solver_.getPStar(state_i, state_j, e_ij);
 		//pressure
 		internalEnergyIncrease += dot(2.0 * p_star * Vol_[index_j] * dW_ij * e_ij / rho_i,
-			vij);
+			vij)*this->material_->molmass_;
 		//viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
 		internalEnergyIncrease += dot(2.0 * mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i,
-			vij);
+			vij)*this->material_->molmass_;
 	}
-	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease*2/3/k_B;
+	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease*2/5/R;
 }
 
 
@@ -524,7 +539,7 @@ vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttra
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
 {
-	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha()*drho_dt_[index_i]*2/3/k_B;
+	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha()*drho_dt_[index_i]*2/5/R;
 }
 
 namespace SPH::fluid_dynamics{
@@ -606,17 +621,20 @@ void vdWDensityRelaxation<BaseDensityRelaxationType>::Interaction(size_t index_i
 			Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
 			Real dp = state_i.rho_ * r_ij * SMAX(0.0, face_wall_external_acceleration);
 			Real p_in_wall = state_i.p_ + dp;
-			Real rho_in_wall = state_i.rho_ + dp/this->material_->getSoundSpeed(state_i.p_ + 0.5*dp, temperature_[index_i]); //sound speed = dp/drho
+			Real rho_in_wall = state_i.rho_ + dp/this->material_->getSoundSpeed(state_i.p_ + 0.5*dp, state_i.rho_); //sound speed = dp/drho
 			FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
 			Vecd vel_star = this->riemann_solver_.getVStar(state_i, state_j, n_k[index_j]);
 			density_change_rate += 2.0 * state_i.rho_ * Vol_k[index_j] * dot(state_i.vel_ - vel_star, e_ij) * dW_ij;
+			if(density_change_rate!=density_change_rate){
+				printf("WARNING: density change rate is NAN");
+			}
 		}
 	}
 	this->drho_dt_[index_i] += density_change_rate;
 }
 	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<PressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
-	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<DensityRelaxationRiemannInner>;
+	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<BaseDensityRelaxationInner<NoRiemannSolver>>;
 	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = ExtendPressureRelaxationWithWall<ExtendPressureRelaxation<BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
-	using vdWMultiPhaseDensityRelaxationRiemannWithWall = vdWDensityRelaxation<MultiPhaseDensityRelaxationRiemann>;
+	using vdWMultiPhaseDensityRelaxationRiemannWithWall = vdWDensityRelaxation<BaseDensityRelaxationMultiPhase<BaseDensityRelaxationInner<NoRiemannSolver>>>;
 
 }

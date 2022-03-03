@@ -28,11 +28,6 @@ int main()
 	/**
 	 * @brief Material property, partilces and body creation of water.
 	 */
-
-	AirBlock air_block(sph_system, "AirBody");
-	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-		diffusion_gas_body_particles(air_block, makeShared<AirMaterial>());
-
 	WaterBlock water_block(sph_system, "WaterBody");
 	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
 		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>());
@@ -48,14 +43,9 @@ int main()
 	 */
 	/** topology */
 	BodyRelationInner fluid_body_inner(water_block);
-	BodyRelationInner gas_body_inner(air_block);
 	BodyRelationInner solid_body_inner(wall_boundary);
-	ComplexBodyRelation water_air_complex(water_block, {&air_block});
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
 	BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
-	ComplexBodyRelation air_water_complex(air_block, { &water_block });
-	ComplexBodyRelation air_wall_complex(gas_body_inner, { &wall_boundary });
-	BaseBodyRelationContact &air_wall_contact = air_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});
 	/**
 	 * @brief 	Define all numerical methods which are used in this case.
@@ -68,67 +58,47 @@ int main()
 	 */
 	 /** Initialize particle acceleration. */
 	ThermosolidBodyInitialCondition thermosolid_condition(wall_boundary);
-	ThermogasBodyInitialCondition thermogas_initial_condition(air_block);
 	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block);
 
 	TimeStepInitialization		initialize_a_water_step(water_block, gravity);
-	TimeStepInitialization		initialize_a_air_step(air_block, gravity);
 
-	DiffusionSourceInitialization<FluidBody, CompressibleFluidParticles, vdWFluid> initialize_a_air_step_thermo(air_block, heat_source, 0);
 	DiffusionSourceInitialization<FluidBody, CompressibleFluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
-	StressTensorHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  stress_tensor_heat_air(gas_body_inner, 0);
 	StressTensorHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
-	vdWAttractionHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  vdW_attr_heat_air(air_block, 0);
 	vdWAttractionHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
 	/** Corrected strong configuration for diffusion solid body. */
 	solid_dynamics::CorrectConfiguration 			correct_configuration(solid_body_inner);
 	/** Time step size calculation. */
 	GetDiffusionTimeStepSize<FluidBody, CompressibleFluidParticles, vdWFluid> get_thermal_time_step(water_block);
-	GetDiffusionTimeStepSize<FluidBody, CompressibleFluidParticles, vdWFluid> get_thermal_time_step_air(air_block);
 	/** Diffusion process between three diffusion bodies. */
 	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
-	ThermalRelaxationComplex 	thermal_relaxation_complex_aw(air_wall_complex);
 	/**
 	 * @brief 	Algorithms of fluid dynamics.
 	 */
 	 /** Evaluation of density by summation approach. */
 	fluid_dynamics::DensitySummationFreeSurfaceComplex 	
-		update_water_density_by_summation(water_air_complex.inner_relation_, water_wall_contact);
-	fluid_dynamics::DensitySummationComplex
-		update_air_density_by_summation(air_water_complex, air_wall_contact);
-	fluid_dynamics::TransportVelocityCorrectionComplex
-		air_transport_correction(air_water_complex, air_wall_contact);
+		update_water_density_by_summation(fluid_body_inner, water_wall_contact);
 	/** Time step size without considering sound wave speed. */
 	fluid_dynamics::AdvectionTimeStepSize 	get_water_advection_time_step_size(water_block, U_max);
-	fluid_dynamics::AdvectionTimeStepSize 	get_air_advection_time_step_size(air_block, U_max);
 	/** Time step size with considering sound wave speed. */
 	fluid_dynamics::AcousticTimeStepSize get_water_time_step_size(water_block);
-	fluid_dynamics::AcousticTimeStepSize get_air_time_step_size(air_block);
 	/** Pressure relaxation for water by using position verlet time stepping. */
 	fluid_dynamics::vdWPressureRelaxationRiemannWithWall 
-		water_pressure_relaxation(water_air_complex.inner_relation_, water_wall_contact);
+		water_pressure_relaxation(fluid_body_inner, water_wall_contact);
 	fluid_dynamics::vdWDensityRelaxationRiemannWithWall 
-		water_density_relaxation(water_air_complex.inner_relation_, water_wall_contact);
-	/** Extend Pressure relaxation is used for air. */
-	fluid_dynamics::vdWExtendMultiPhasePressureRelaxationRiemannWithWall
-		air_pressure_relaxation(air_water_complex, air_wall_contact, 2.0);
-	fluid_dynamics::vdWMultiPhaseDensityRelaxationRiemannWithWall
-		air_density_relaxation(air_water_complex, air_wall_contact);
-	/** Viscous acceleration. */
-	fluid_dynamics::ViscousAccelerationMultiPhase
-		air_viscou_acceleration(air_water_complex);
-	fluid_dynamics::ViscousAccelerationMultiPhase
-		water_viscou_acceleration(water_air_complex);
+		water_density_relaxation(fluid_body_inner, water_wall_contact);
+	//fluid_dynamics::ViscousAccelerationMultiPhase
+	fluid_dynamics::ViscousAccelerationInner
+		water_viscou_acceleration(fluid_body_inner);
 	/** Suface tension and wetting effects. */
 	fluid_dynamics::FreeSurfaceIndicationComplex
-		surface_detection(water_air_complex.inner_relation_, water_wall_contact);
+		surface_detection(fluid_body_inner, water_wall_contact);
 	fluid_dynamics::ColorFunctionGradientComplex
-		color_gradient(water_air_complex.inner_relation_, water_wall_contact);
+		color_gradient(fluid_body_inner, water_wall_contact);
 	fluid_dynamics::ColorFunctionGradientInterplationInner
-		color_gradient_interpolation(water_air_complex.inner_relation_);
+		color_gradient_interpolation(fluid_body_inner);
 	fluid_dynamics::SurfaceTensionAccelerationInner
-		surface_tension_acceleration(water_air_complex.inner_relation_, tension_force);
+		surface_tension_acceleration(fluid_body_inner, tension_force);
 	/** Wetting effects. */
 	fluid_dynamics::SurfaceNormWithWall
 		wetting_norm(water_wall_contact, contact_angle);
@@ -152,18 +122,16 @@ int main()
 	correct_configuration.exec();
 	thermosolid_condition.exec();
 	thermofluid_initial_condition.exec();
-	thermogas_initial_condition.exec();
-	Real dt_thermal = SMIN(get_thermal_time_step.exec(),get_thermal_time_step_air.exec());
+	Real dt_thermal = get_thermal_time_step.exec();
 	 /** If the starting time is not zero, please setup the restart time step ro read in restart states. */
 	if (sph_system.restart_step_ != 0)
 	{
 		GlobalStaticVariables::physical_time_ = restart_io.readRestartFiles(sph_system.restart_step_);
 		water_block.updateCellLinkedList();
-		air_block.updateCellLinkedList();
-		water_air_complex.updateConfiguration();
+		fluid_body_inner.updateConfiguration();
 		water_wall_contact.updateConfiguration();
-		air_water_complex.updateConfiguration();
-		air_wall_contact.updateConfiguration();
+		//air_water_complex.updateConfiguration();
+		//air_wall_contact.updateConfiguration();
 	}
 	/** Output the start states of bodies. */
 	body_states_recording.writeToFile(0);
@@ -173,7 +141,7 @@ int main()
 	size_t number_of_iterations = sph_system.restart_step_;
 	int screen_output_interval = 100;
 	int restart_output_interval = screen_output_interval * 10;
-	Real End_Time = 50; 	/**< End time. */
+	Real End_Time = 0.5; 	/**< End time. */
 	Real D_Time = End_Time / 1000;		/**< Time stamps for output of body states. */
 	Real Dt = 0.0;			/**< Default advection time step sizes. */
 	Real dt = 0.0; 			/**< Default acoustic time step sizes. */
@@ -197,32 +165,32 @@ int main()
 			/** Acceleration due to viscous force and gravity. */
 			time_instance = tick_count::now();
 			initialize_a_water_step.exec();
-			initialize_a_air_step.exec();
+			//initialize_a_air_step.exec();
 
 			Real Dt_f = get_water_advection_time_step_size.exec();
-			Real Dt_a = get_air_advection_time_step_size.exec();
-			Dt = SMIN(Dt_f, Dt_a);
+			//Real Dt_a = get_air_advection_time_step_size.exec();
+			Dt = Dt_f;//SMIN(Dt_f, Dt_a);
 
 			update_water_density_by_summation.exec();
-			update_air_density_by_summation.exec();
-			air_transport_correction.exec(Dt);
+			//update_air_density_by_summation.exec();
+			//air_transport_correction.exec(Dt);
 
-			air_viscou_acceleration.exec();
+			//air_viscou_acceleration.exec();
 			water_viscou_acceleration.exec();
 
-			surface_detection.exec();
-			color_gradient.exec();
-			color_gradient_interpolation.exec();
+			//surface_detection.exec();
+			//color_gradient.exec();
+			//color_gradient_interpolation.exec();
 			//wetting_norm.exec();
 			//surface_tension_acceleration.exec();
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
-			initialize_a_air_step_thermo.exec();
+			//initialize_a_air_step_thermo.exec();
 			initialize_a_water_step_thermo.exec();
-			stress_tensor_heat_air.exec();
+			//stress_tensor_heat_air.exec();
 			stress_tensor_heat_water.exec();
-			vdW_attr_heat_air.exec();
+			//vdW_attr_heat_air.exec();
 			vdW_attr_heat_water.exec();
 			/** Dynamics including pressure relaxation. */
 			time_instance = tick_count::now();
@@ -230,21 +198,23 @@ int main()
 			while (relaxation_time < Dt)
 			{
 				Real dt_f = get_water_time_step_size.exec();
-				Real dt_a = get_air_time_step_size.exec();
-				dt = SMIN(SMIN(SMIN(dt_f, dt_a), Dt),dt_thermal);
+				//Real dt_a = get_air_time_step_size.exec();
+				dt = SMIN(SMIN(dt_f, Dt),dt_thermal);
 				water_pressure_relaxation.exec(dt);
-				air_pressure_relaxation.exec(dt);
+				//air_pressure_relaxation.exec(dt);
 
 				water_density_relaxation.exec(dt);
-				air_density_relaxation.exec(dt);
+				//air_density_relaxation.exec(dt);
 
 				//thermal_relaxation_complex_wa.exec(dt);
 				thermal_relaxation_complex_ww.exec(dt);
-				thermal_relaxation_complex_aw.exec(dt);
+				//thermal_relaxation_complex_aw.exec(dt);
 				relaxation_time += dt;
 				integration_time += dt;
 				GlobalStaticVariables::physical_time_ += dt;
-		body_states_recording.writeToFile();
+			body_states_recording.writeToFile();
+			water_block.updateCellLinkedList();
+			water_wall_complex.updateConfiguration();
 			}
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
 
@@ -258,17 +228,10 @@ int main()
 					restart_io.writeToFile(number_of_iterations);
 			}
 			number_of_iterations++;
-
-			/** Update cell linked list and configuration. */
 			time_instance = tick_count::now();
 			
-			water_block.updateCellLinkedList();
-			water_air_complex.updateConfiguration();
-			water_wall_complex.updateConfiguration();
 
-			air_block.updateCellLinkedList();
-			air_water_complex.updateConfiguration();
-			air_wall_complex.updateConfiguration();
+			/** Update cell linked list and configuration. */
 
 			interval_updating_configuration += tick_count::now() - time_instance;
 		}

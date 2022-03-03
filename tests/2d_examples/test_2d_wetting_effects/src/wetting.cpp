@@ -172,6 +172,7 @@ int main()
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
+		body_states_recording.writeToFile();
 			/** Dynamics including pressure relaxation. */
 			time_instance = tick_count::now();
 			Real relaxation_time = 0.0;
@@ -219,7 +220,6 @@ int main()
 		}
 
 		tick_count t2 = tick_count::now();
-		body_states_recording.writeToFile();
 		tick_count t3 = tick_count::now();
 		interval += t3 - t2;
 	}
