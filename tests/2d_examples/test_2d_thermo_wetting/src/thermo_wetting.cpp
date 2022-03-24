@@ -13,7 +13,7 @@ using namespace SPH;
  */
 
 
-int main()
+int main(int argc, char* argv[])
 {
 	/**
 	 * @brief Build up -- a SPHSystem --
@@ -30,8 +30,8 @@ int main()
 	 */
 	WaterBlock water_block(sph_system, "WaterBody");
 	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>());
-
+		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>(stof(argv[1])));
+	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
 	WallBoundary wall_boundary(sph_system, "Wall");
 	DiffusionReactionParticles<SolidParticles, Solid>
 		wall_particles(wall_boundary, makeShared<WallMaterial>());
@@ -76,7 +76,7 @@ int main()
 	 * @brief 	Algorithms of fluid dynamics.
 	 */
 	 /** Evaluation of density by summation approach. */
-	fluid_dynamics::DensitySummationFreeSurfaceComplex 	
+	fluid_dynamics::DensitySummationFreeSurfaceComplexWithoutUpdate 	
 		update_water_density_by_summation(fluid_body_inner, water_wall_contact);
 	/** Time step size without considering sound wave speed. */
 	fluid_dynamics::AdvectionTimeStepSize 	get_water_advection_time_step_size(water_block, U_max);
@@ -119,10 +119,10 @@ int main()
 	/**
 	 * @brief The time stepping starts here.
 	 */
-	correct_configuration.exec();
-	thermosolid_condition.exec();
-	thermofluid_initial_condition.exec();
-	Real dt_thermal = get_thermal_time_step.exec();
+	correct_configuration.parallel_exec();
+	thermosolid_condition.parallel_exec();
+	thermofluid_initial_condition.parallel_exec();
+	Real dt_thermal = get_thermal_time_step.parallel_exec();
 	 /** If the starting time is not zero, please setup the restart time step ro read in restart states. */
 	if (sph_system.restart_step_ != 0)
 	{
@@ -141,7 +141,7 @@ int main()
 	size_t number_of_iterations = sph_system.restart_step_;
 	int screen_output_interval = 100;
 	int restart_output_interval = screen_output_interval * 10;
-	Real End_Time = 0.5; 	/**< End time. */
+	Real End_Time = 10; 	/**< End time. */
 	Real D_Time = End_Time / 1000;		/**< Time stamps for output of body states. */
 	Real Dt = 0.0;			/**< Default advection time step sizes. */
 	Real dt = 0.0; 			/**< Default acoustic time step sizes. */
@@ -152,7 +152,8 @@ int main()
 	tick_count::interval_t interval_computing_pressure_relaxation;
 	tick_count::interval_t interval_updating_configuration;
 	tick_count time_instance;
-
+	bool firstiter = 1;
+	bool denseWriting = 1;
 	/**
 	 * @brief 	Main loop starts here.
 	 */
@@ -164,57 +165,61 @@ int main()
 		{
 			/** Acceleration due to viscous force and gravity. */
 			time_instance = tick_count::now();
-			initialize_a_water_step.exec();
-			//initialize_a_air_step.exec();
+			initialize_a_water_step.parallel_exec();
+			//initialize_a_air_step.parallel_exec();
 
-			Real Dt_f = get_water_advection_time_step_size.exec();
-			//Real Dt_a = get_air_advection_time_step_size.exec();
+			Real Dt_f = get_water_advection_time_step_size.parallel_exec();
+			//Real Dt_a = get_air_advection_time_step_size.parallel_exec();
 			Dt = Dt_f;//SMIN(Dt_f, Dt_a);
 
-			update_water_density_by_summation.exec();
-			//update_air_density_by_summation.exec();
-			//air_transport_correction.exec(Dt);
+			//update_air_density_by_summation.parallel_exec();
+			//air_transport_correction.parallel_exec(Dt);
 
-			//air_viscou_acceleration.exec();
-			water_viscou_acceleration.exec();
+			//air_viscou_acceleration.parallel_exec();
+			water_viscou_acceleration.parallel_exec();
 
-			//surface_detection.exec();
-			//color_gradient.exec();
-			//color_gradient_interpolation.exec();
-			//wetting_norm.exec();
-			//surface_tension_acceleration.exec();
+			//surface_detection.parallel_exec();
+			//color_gradient.parallel_exec();
+			//color_gradient_interpolation.parallel_exec();
+			//wetting_norm.parallel_exec();
+			//surface_tension_acceleration.parallel_exec();
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
-			//initialize_a_air_step_thermo.exec();
-			initialize_a_water_step_thermo.exec();
-			//stress_tensor_heat_air.exec();
-			stress_tensor_heat_water.exec();
-			//vdW_attr_heat_air.exec();
-			vdW_attr_heat_water.exec();
+			//initialize_a_air_step_thermo.parallel_exec();
+			initialize_a_water_step_thermo.parallel_exec();
 			/** Dynamics including pressure relaxation. */
 			time_instance = tick_count::now();
 			Real relaxation_time = 0.0;
 			while (relaxation_time < Dt)
 			{
-				Real dt_f = get_water_time_step_size.exec();
-				//Real dt_a = get_air_time_step_size.exec();
+				Real dt_f = get_water_time_step_size.parallel_exec();
+				//Real dt_a = get_air_time_step_size.parallel_exec();
 				dt = SMIN(SMIN(dt_f, Dt),dt_thermal);
-				water_pressure_relaxation.exec(dt);
-				//air_pressure_relaxation.exec(dt);
+				water_pressure_relaxation.parallel_exec(dt);
+				//air_pressure_relaxation.parallel_exec(dt);
 
-				water_density_relaxation.exec(dt);
-				//air_density_relaxation.exec(dt);
+				update_water_density_by_summation.parallel_exec(dt);
+				//water_density_relaxation.parallel_exec(dt);
+				//air_density_relaxation.parallel_exec(dt);
 
-				//thermal_relaxation_complex_wa.exec(dt);
-				thermal_relaxation_complex_ww.exec(dt);
-				//thermal_relaxation_complex_aw.exec(dt);
+				//thermal_relaxation_complex_wa.parallel_exec(dt);
+				thermal_relaxation_complex_ww.parallel_exec(dt);
+				//thermal_relaxation_complex_aw.parallel_exec(dt);
+				//stress_tensor_heat_air.parallel_exec();
+				stress_tensor_heat_water.parallel_exec();
+				//vdW_attr_heat_air.parallel_exec();
+				vdW_attr_heat_water.parallel_exec();
 				relaxation_time += dt;
 				integration_time += dt;
 				GlobalStaticVariables::physical_time_ += dt;
-			body_states_recording.writeToFile();
-			water_block.updateCellLinkedList();
-			water_wall_complex.updateConfiguration();
+				//if(firstiter) {
+				//	body_states_recording.writeToFile();
+				//	firstiter =0;
+				//}
+				water_block.updateCellLinkedList();
+				water_wall_complex.updateConfiguration();
+				if(denseWriting) body_states_recording.writeToFile();
 			}
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
 
@@ -224,6 +229,7 @@ int main()
 					<< GlobalStaticVariables::physical_time_
 					<< "	Dt = " << Dt << "	dt = " << dt << "\n";
 
+				if(!denseWriting) body_states_recording.writeToFile();
 				if (number_of_iterations % restart_output_interval == 0)
 					restart_io.writeToFile(number_of_iterations);
 			}
