@@ -42,6 +42,8 @@ int main(int argc, char* argv[])
 	 * @brief Material property, partilces and body creation of air.
 	 */
 	/** topology */
+	//BodyRelationInnerMultiLength fluid_body_inner(water_block); //TBD
+	//BodyRelationInnerMultiLength solid_body_inner(wall_boundary); //TBD
 	BodyRelationInner fluid_body_inner(water_block);
 	BodyRelationInner solid_body_inner(wall_boundary);
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });

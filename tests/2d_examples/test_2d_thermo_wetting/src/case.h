@@ -14,7 +14,8 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
-const Real R = 8.314;
+int dim=3;
+const Real k_B = 1;
 Real DL = 2.0;						   /**< Tank length. */
 Real DH = 1.0;						   /**< Tank height. */
 Real particle_spacing_ref = DL / 60.0; /**< Initial reference particle spacing. */
@@ -39,9 +40,9 @@ Real phi_gas_initial = 273.15;
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 1000;						  /**< Reference density of water. */
+Real rho0_f = 1.2029;							  // 1000;						  /**< Reference density of water. */
 Real rho0_a = 1.100859077806;					  /**< Reference density of air. */
-Real gravity_g = 9.8;							  /**< Gravity force of fluid. */
+Real gravity_g = 0;								  /**< Gravity force of fluid. */
 Real U_max = 1.0;								  /**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;						  /**< Reference sound speed. */
 Real mu_f = 2e3;								  /**< Water viscosity. */
@@ -49,10 +50,10 @@ Real mu_a = 5.0e-5;								  /**< Air visocsity. */
 Real contact_angle = (150.0 / 180.0) * 3.1415926; /**< Contact angle with Wall. */
 Real tension_force = 0.008;
 /** vdW properties. */
-Real gamma_vdw = 7. / 5;		 //(dim+2)/dim
-Real rho0_water = 1.171560e+03;	 // max density kg/m3
-Real alpha_water = 2.791460e-01; // attraction force
-Real molmass_water = 18e-3;		 // kg/mol
+Real gamma_vdw = 7. / 5;	//(dim+2)/dim
+Real rho0_water = 2;		// max density kg/m3
+Real alpha_water = 2;		// attraction force
+Real molmass_water = 18e-3; // kg/mol
 Real molmass_air = 27e-3;
 /** create a water block shape */
 std::vector<Vecd> createWaterBlockShape()
@@ -153,7 +154,7 @@ Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
 	Real rhomol = rho / molmass_;
-	Real ret = rhomol * R * T * ratio - alpha_ * rhomol * rhomol;
+	Real ret = rhomol * k_B * T * ratio - alpha_ * rhomol * rhomol;
 	if (ret != ret)
 	{
 		printf("WARNING: Pressure is NAN");
@@ -520,7 +521,7 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 									  vij) *
 								  this->material_->molmass_;
 	}
-	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / 5 / R;
+	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / 5 / k_B;
 }
 
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
@@ -551,7 +552,7 @@ vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttra
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
 {
-	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / R;
+	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
 }
 
 namespace SPH::fluid_dynamics
@@ -575,7 +576,7 @@ namespace SPH::fluid_dynamics
 	template <class RiemannSolverType>
 	void vdWPressureRelaxationInner<RiemannSolverType>::Initialization(size_t index_i, Real dt)
 	{
-		//this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
+		// this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
 		this->Vol_[index_i] = this->mass_[index_i] / this->rho_n_[index_i];
 		this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i], temperature_[index_i]);
 		this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
@@ -662,19 +663,17 @@ namespace SPH::fluid_dynamics
 	class DensitySummationFreeSurfaceComplexWithoutUpdate : public DensitySummationFreeSurfaceComplex
 	{
 	public:
-		DensitySummationFreeSurfaceComplexWithoutUpdate(BaseBodyRelationInner &inner_relation, BaseBodyRelationContact &contact_relation):
-			DensitySummationFreeSurfaceComplex(inner_relation,contact_relation){};
-		DensitySummationFreeSurfaceComplexWithoutUpdate(ComplexBodyRelation &complex_relation, BaseBodyRelationContact &extra_contact_relation):
-			DensitySummationFreeSurfaceComplex(complex_relation,extra_contact_relation){};
+		DensitySummationFreeSurfaceComplexWithoutUpdate(BaseBodyRelationInner &inner_relation, BaseBodyRelationContact &contact_relation) : DensitySummationFreeSurfaceComplex(inner_relation, contact_relation){};
+		DensitySummationFreeSurfaceComplexWithoutUpdate(ComplexBodyRelation &complex_relation, BaseBodyRelationContact &extra_contact_relation) : DensitySummationFreeSurfaceComplex(complex_relation, extra_contact_relation){};
 		virtual ~DensitySummationFreeSurfaceComplexWithoutUpdate(){};
 
 	protected:
-		//virtual void Update(size_t index_i, Real dt = 0.0) override;
+		// virtual void Update(size_t index_i, Real dt = 0.0) override;
 		virtual Real ReinitializedDensity(Real rho_sum, Real rho_0, Real rho_n) override { return rho_sum; };
 		virtual void Interaction(size_t index_i, Real dt) override;
 	};
 
-	//void DensitySummationFreeSurfaceComplexWithoutUpdate::Update(size_t index_i, Real dt){}
+	// void DensitySummationFreeSurfaceComplexWithoutUpdate::Update(size_t index_i, Real dt){}
 
 	void DensitySummationFreeSurfaceComplexWithoutUpdate::Interaction(size_t index_i, Real dt)
 	{
@@ -682,10 +681,10 @@ namespace SPH::fluid_dynamics
 		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 			sigma += inner_neighborhood.W_ij_[n];
-		this->particles_->drho_dt_[index_i] = sigma * rho0_ * inv_sigma0_/dt - rho_sum_[index_i]/dt;
-		rho_sum_[index_i] += this->particles_->drho_dt_[index_i]*dt;
+		this->particles_->drho_dt_[index_i] = sigma * rho0_ * inv_sigma0_ / dt - rho_sum_[index_i] / dt;
+		rho_sum_[index_i] += this->particles_->drho_dt_[index_i] * dt;
 		/** Contact interaction. */
-		sigma=0.0;
+		sigma = 0.0;
 		Real inv_Vol_0_i = this->rho0_ / this->mass_[index_i];
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)
 		{
@@ -697,7 +696,95 @@ namespace SPH::fluid_dynamics
 				sigma += contact_neighborhood.W_ij_[n] * inv_Vol_0_i * contact_inv_rho0_k * contact_mass_k[contact_neighborhood.j_[n]];
 			}
 		}
-		this->particles_->drho_dt_[index_i] += sigma * this->rho0_ * this->inv_sigma0_/dt;
+		this->particles_->drho_dt_[index_i] += sigma * this->rho0_ * this->inv_sigma0_ / dt;
 		this->rho_sum_[index_i] += sigma * this->rho0_ * this->inv_sigma0_;
+	}
+	/* TBD
+	class BodyRelationInnerMultiLength : public BodyRelationInner
+	{
+		public:
+
+	};
+	*/
+
+	// add particle data
+	class KortewegTermCalc : public InteractionDynamics, public FluidDataInner
+	{
+	public:
+		explicit KortewegTermCalc(BaseBodyRelationInner &inner_relation, Real weberNumber);
+		virtual ~KortewegTermCalc(){};
+
+	protected:
+		Real weberNumber_;
+		StdLargeVec<Real> &Vol_, &rho_n_, &p_;
+		StdLargeVec<Vecd> &vel_n_, &dvel_dt_prior_;
+		StdLargeVec<Matd> korteweg_tensor_;
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+	};
+	KortewegTermCalc::KortewegTermCalc(BaseBodyRelationInner &inner_relation, Real weberNumber)
+		: InteractionDynamics(*inner_relation.sph_body_),
+		  FluidDataInner(inner_relation),
+		  Vol_(particles_->Vol_), rho_n_(particles_->rho_n_), p_(particles_->p_),
+		  vel_n_(particles_->vel_n_),
+		  dvel_dt_prior_(particles_->dvel_dt_prior_),
+		  weberNumber_(weberNumber)
+	{
+		// register Tensor to particle data
+		particles_->registerAVariable<indexMatrix, Matd>(korteweg_tensor_, "Korteweg_tensor");
+	}
+	//=================================================================================================//
+	void KortewegTermCalc::Interaction(size_t index_i, Real dt)
+	{
+		Real rho_i = rho_n_[index_i];
+		const Vecd &vel_i = vel_n_[index_i];
+		Vecd acceleration(0), vel_derivative(0);
+		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+		Vecd grad_rho(0, 0);
+		Real laplace_rho(0);
+		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+		{
+			size_t index_j = inner_neighborhood.j_[n];
+			grad_rho += rho_n_[index_j] * Vol_[index_j] * (rho_n_[index_j] / rho_i - 1) * inner_neighborhood.dW_ij_[n];
+			laplace_rho += (4 - dim) * Vol_[index_j] * (rho_n_[index_j] - rho_i) / inner_neighborhood.r_ij_[n] * inner_neighborhood.dW_ij_[n];
+		}
+		Matd ret = 0.5 * (rho_i * laplace_rho + 0.5 * dot(grad_rho, grad_rho)) * Matd(1.0) - SimTK::outer(grad_rho, grad_rho);
+		korteweg_tensor_[index_i] = weberNumber_ * ret;
+	}
+
+	class KortewegAccelerationInner : public InteractionDynamics, public FluidDataInner
+	{
+	public:
+		explicit KortewegAccelerationInner(BaseBodyRelationInner &inner_relation);
+		virtual ~KortewegAccelerationInner(){};
+
+	protected:
+		Real weberNumber_;
+		StdLargeVec<Real> &Vol_, &rho_n_, &p_;
+		StdLargeVec<Vecd> &vel_n_, &dvel_dt_prior_;
+		StdLargeVec<Matd> &korteweg_tensor_;
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+	};
+	KortewegAccelerationInner::KortewegAccelerationInner(BaseBodyRelationInner &inner_relation)
+	: InteractionDynamics(*inner_relation.sph_body_),
+	  FluidDataInner(inner_relation),
+	  Vol_(particles_->Vol_), rho_n_(particles_->rho_n_), p_(particles_->p_),
+	  vel_n_(particles_->vel_n_),
+	  dvel_dt_prior_(particles_->dvel_dt_prior_),
+	  korteweg_tensor_(*(std::get<indexMatrix>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexMatrix]["Korteweg_tensor"]])) {}
+//=================================================================================================//
+	void KortewegAccelerationInner::Interaction(size_t index_i, Real dt)
+	{
+		Real rho_i = rho_n_[index_i];
+		const Vecd &vel_i = vel_n_[index_i];
+		Vecd acceleration(0), vel_derivative(0);
+		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+		{
+			size_t index_j = inner_neighborhood.j_[n];
+			// Kortewegs force
+			acceleration += rho_n_[index_j] * Vol_[index_j] *
+							(korteweg_tensor_[index_i] / rho_i / rho_i - korteweg_tensor_[index_j] / rho_n_[index_j] / rho_n_[index_j]) * inner_neighborhood.e_ij_[n] * inner_neighborhood.dW_ij_[n];
+		}
+		dvel_dt_prior_[index_i] += acceleration;
 	}
 }
