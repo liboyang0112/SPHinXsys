@@ -40,15 +40,15 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 Real phi_upper_wall = 0.2;
 Real phi_lower_wall = 0.2;
 Real phi_side_wall = 0.2;
-Real phi_fluid_initial = 0.46;
+Real phi_fluid_initial = 2.5;
 Real phi_gas_initial = 0.2;
 
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 0.01;							  // 1000;						  /**< Reference density of water. */
+Real rho0_f = 1.7;							  // 1000;						  /**< Reference density of water. */
 Real rho0_a = 1.100859077806;					  /**< Reference density of air. */
-Real gravity_g = 0.001;								  /**< Gravity force of fluid. */
+Real gravity_g = 0.01;								  /**< Gravity force of fluid. */
 Real U_max = 1.0;								  /**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;						  /**< Reference sound speed. */
 Real mu_f = 2e3;								  /**< Water viscosity. */
@@ -159,7 +159,7 @@ public:
 Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
-	if(ratio<0) return 99999;
+	if(ratio<0 || ratio!=ratio) ratio=100;
 	Real ret = rho * k_B * T * ratio - alpha_ * rho * rho;
 	if (ret != ret)
 	{
@@ -508,7 +508,9 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 	Real internalEnergyIncrease(0);
 	const Vecd &vel_i = vel_n_[index_i];
 	FluidState state_i(rho_n_[index_i], vel_n_[index_i], p_[index_i]);
-
+	if(index_i==67) {
+		int halt = 1;
+	}
 	Vecd vel_derivative(0);
 	Neighborhood &inner_neighborhood = this->inner_configuration_[index_i];
 	for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
@@ -523,7 +525,8 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		internalEnergyIncrease += dot(p_star * Vol_[index_j] * dW_ij * e_ij / rho_i, vij);
 		// viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
-		internalEnergyIncrease -= dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
+		Real visheat = -dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
+		//internalEnergyIncrease += visheat;
 	}
 	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / 5 / k_B;
 }
@@ -556,7 +559,11 @@ vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttra
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
 {
-	diffusion_dt_prior_[source_index_][index_i] += this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
+	if(index_i==67) {
+		int halt = 1;
+	}
+	Real ret = this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
+	diffusion_dt_prior_[source_index_][index_i] += ret;
 }
 
 namespace SPH::fluid_dynamics
@@ -580,7 +587,7 @@ namespace SPH::fluid_dynamics
 	template <class RiemannSolverType>
 	void vdWPressureRelaxationInner<RiemannSolverType>::Initialization(size_t index_i, Real dt)
 	{
-		// this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
+		this->rho_n_[index_i] += this->drho_dt_[index_i] * dt * 0.5;
 		this->Vol_[index_i] = this->mass_[index_i] / this->rho_n_[index_i];
 		this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i], temperature_[index_i]);
 		this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
@@ -685,11 +692,8 @@ namespace SPH::fluid_dynamics
 		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 			sigma += inner_neighborhood.W_ij_[n];
-		this->particles_->drho_dt_[index_i] = sigma * rho0_ * inv_sigma0_ / dt - rho_sum_[index_i] / dt;
-		rho_sum_[index_i] += this->particles_->drho_dt_[index_i] * dt;
 		/** Contact interaction. */
-		sigma = 0.0;
-		Real inv_Vol_0_i = this->rho0_ / this->mass_[index_i];
+		Real inv_Vol_0_i = rho0_ / mass_[index_i];
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)
 		{
 			StdLargeVec<Real> &contact_mass_k = *(this->contact_mass_[k]);
@@ -700,8 +704,9 @@ namespace SPH::fluid_dynamics
 				sigma += contact_neighborhood.W_ij_[n] * inv_Vol_0_i * contact_inv_rho0_k * contact_mass_k[contact_neighborhood.j_[n]];
 			}
 		}
-		this->particles_->drho_dt_[index_i] += sigma * this->rho0_ * this->inv_sigma0_ / dt;
-		this->rho_sum_[index_i] += sigma * this->rho0_ * this->inv_sigma0_;
+		Real rho_new = sigma * rho0_ * inv_sigma0_;
+		this->particles_->drho_dt_[index_i] = (rho_new-this->rho_sum_[index_i])/dt;
+		this->rho_sum_[index_i] = rho_new;
 	}
 	/* TBD
 	class BodyRelationInnerMultiLength : public BodyRelationInner
