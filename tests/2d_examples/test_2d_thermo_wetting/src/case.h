@@ -16,8 +16,8 @@ using namespace SPH;
  */
 int dim=3;
 const Real k_B = 1;
-Real DL = 2.0;						   /**< Tank length. */
-Real DH = 1.0;						   /**< Tank height. */
+Real DL = 42;						   /**< Tank length. */
+Real DH = 21;						   /**< Tank height. */
 Real particle_spacing_ref = DL / 60.0; /**< Initial reference particle spacing. */
 Real BW = particle_spacing_ref * 4;	   /**< Extending width for BCs. */
 /** Domain bounds of the system. */
@@ -31,18 +31,24 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 /**
  *@brief Temperatures.
  */
-Real phi_upper_wall = 273.15;
-Real phi_lower_wall = 273.15;
-Real phi_side_wall = 273.15;
-Real phi_fluid_initial = 273.15;
-Real phi_gas_initial = 273.15;
+//Real phi_upper_wall = 273.15;
+//Real phi_lower_wall = 273.15;
+//Real phi_side_wall = 273.15;
+//Real phi_fluid_initial = 273.15;
+//Real phi_gas_initial = 273.15;
+
+Real phi_upper_wall = 0.2;
+Real phi_lower_wall = 0.2;
+Real phi_side_wall = 0.2;
+Real phi_fluid_initial = 0.46;
+Real phi_gas_initial = 0.2;
 
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 1.2029;							  // 1000;						  /**< Reference density of water. */
+Real rho0_f = 0.01;							  // 1000;						  /**< Reference density of water. */
 Real rho0_a = 1.100859077806;					  /**< Reference density of air. */
-Real gravity_g = 0;								  /**< Gravity force of fluid. */
+Real gravity_g = 0.001;								  /**< Gravity force of fluid. */
 Real U_max = 1.0;								  /**< Characteristic velocity. */
 Real c_f = 10.0 * U_max;						  /**< Reference sound speed. */
 Real mu_f = 2e3;								  /**< Water viscosity. */
@@ -153,11 +159,11 @@ public:
 Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
-	Real rhomol = rho / molmass_;
-	Real ret = rhomol * k_B * T * ratio - alpha_ * rhomol * rhomol;
+	if(ratio<0) return 99999;
+	Real ret = rho * k_B * T * ratio - alpha_ * rho * rho;
 	if (ret != ret)
 	{
-		printf("WARNING: Pressure is NAN");
+		printf("WARNING: Pressure is NAN\n");
 		exit(0);
 	}
 	// if(ret<-100000){
@@ -170,8 +176,7 @@ Real vdWFluid::getPressure(Real rho, Real T)
 Real vdWFluid::getSoundSpeed(Real p, Real rho)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
-	Real rhomol = rho / molmass_;
-	Real ret = sqrt(fabs(gamma_ * ratio * (alpha_ * rhomol + p / rhomol) - 2 * alpha_ * rhomol));
+	Real ret = sqrt(fabs(gamma_ * ratio * (alpha_ * rho + p / rho) - 2 * alpha_ * rho));
 	if (ret != ret)
 	{
 		printf("WARNING: Sound Speed is NAN");
@@ -282,7 +287,7 @@ class WaterBlock : public FluidBody
 {
 public:
 	WaterBlock(SPHSystem &sph_system, const string &body_name)
-		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(2, 1))
+		: FluidBody(sph_system, body_name, makeShared<SPHAdaptation>(1.3, 1))
 	{
 		/** Geomtry definition. */
 		MultiPolygon multi_polygon;
@@ -414,7 +419,10 @@ class HeatSource // External heat source, laser for example
 public:
 	HeatSource(){};
 	~HeatSource(){};
-	Real InducedHeating(Vecd &position) { return 1; };
+	Real InducedHeating(Vecd &position) {
+		return 0;
+		return position[0]<20?2:0; 
+	}
 };
 
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
@@ -512,14 +520,10 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		FluidState state_j(rho_n_[index_j], vel_n_[index_j], p_[index_j]);
 		Real p_star = riemann_solver_.getPStar(state_i, state_j, e_ij);
 		// pressure
-		internalEnergyIncrease += dot(p_star * Vol_[index_j] * dW_ij * e_ij / rho_i,
-									  vij) *
-								  this->material_->molmass_;
+		internalEnergyIncrease += dot(p_star * Vol_[index_j] * dW_ij * e_ij / rho_i, vij);
 		// viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
-		internalEnergyIncrease += dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i,
-									  vij) *
-								  this->material_->molmass_;
+		internalEnergyIncrease -= dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
 	}
 	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / 5 / k_B;
 }
@@ -552,7 +556,7 @@ vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttra
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
 {
-	diffusion_dt_prior_[source_index_][index_i] -= this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
+	diffusion_dt_prior_[source_index_][index_i] += this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
 }
 
 namespace SPH::fluid_dynamics
