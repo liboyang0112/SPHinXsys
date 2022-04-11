@@ -14,7 +14,9 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
+
 int dim=3;
+int dof = 5;
 const Real k_B = 1;
 Real DL = 42;						   /**< Tank length. */
 Real DH = 21;						   /**< Tank height. */
@@ -40,13 +42,13 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 Real phi_upper_wall = 0.2;
 Real phi_lower_wall = 0.2;
 Real phi_side_wall = 0.2;
-Real phi_fluid_initial = 2.5;
+Real phi_fluid_initial =0.2;
 Real phi_gas_initial = 0.2;
 
 /**
  * @brief Material properties of the fluid.
  */
-Real rho0_f = 1.7;							  // 1000;						  /**< Reference density of water. */
+Real rho0_f = 1.5;							  // 1000;						  /**< Reference density of water. */
 Real rho0_a = 1.100859077806;					  /**< Reference density of air. */
 Real gravity_g = 0.01;								  /**< Gravity force of fluid. */
 Real U_max = 1.0;								  /**< Characteristic velocity. */
@@ -56,7 +58,7 @@ Real mu_a = 5.0e-5;								  /**< Air visocsity. */
 Real contact_angle = (150.0 / 180.0) * 3.1415926; /**< Contact angle with Wall. */
 Real tension_force = 0.008;
 /** vdW properties. */
-Real gamma_vdw = 7. / 5;	//(dim+2)/dim
+Real gamma_vdw = (dof+2) / dof;	//(dim+2)/dim
 Real rho0_water = 2;		// max density kg/m3
 Real alpha_water = 2;		// attraction force
 Real molmass_water = 18e-3; // kg/mol
@@ -102,40 +104,6 @@ std::vector<Vecd> createInnerWallShape()
 /**
  * @brief 	Case dependent material properties definition.
  */
-
-/**
- * application dependent solid body initial condition
- */
-class ThermosolidBodyInitialCondition
-	: public DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>
-{
-protected:
-	size_t phi_;
-
-	void Update(size_t index_i, Real dt) override
-	{
-
-		if (-BW <= pos_n_[index_i][1] && pos_n_[index_i][1] <= 0.0)
-		{
-			species_n_[phi_][index_i] = phi_lower_wall;
-		}
-		else if (DH <= pos_n_[index_i][1] && pos_n_[index_i][1] <= DH + BW)
-		{
-			species_n_[phi_][index_i] = phi_upper_wall;
-		}
-		else
-		{
-			species_n_[phi_][index_i] = phi_side_wall;
-		}
-	};
-
-public:
-	ThermosolidBodyInitialCondition(SolidBody &diffusion_solid_body)
-		: DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>(diffusion_solid_body)
-	{
-		phi_ = material_->SpeciesIndexMap()["Temperature"];
-	};
-};
 
 class vdWFluid : public CompressibleFluid
 {
@@ -186,6 +154,42 @@ Real vdWFluid::getSoundSpeed(Real p, Real rho)
 }
 
 /**
+ * application dependent solid body initial condition
+ */
+class ThermosolidBodyInitialCondition
+	: public DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>
+{
+protected:
+	size_t phi_;
+	Real T0_;
+
+	void Update(size_t index_i, Real dt) override
+	{
+
+		if (-BW <= pos_n_[index_i][1] && pos_n_[index_i][1] <= 0.0)
+		{
+			species_n_[phi_][index_i] = T0_;
+		}
+		else if (DH <= pos_n_[index_i][1] && pos_n_[index_i][1] <= DH + BW)
+		{
+			species_n_[phi_][index_i] = phi_upper_wall;
+		}
+		else
+		{
+			species_n_[phi_][index_i] = phi_side_wall;
+		}
+	};
+
+public:
+	ThermosolidBodyInitialCondition(SolidBody &diffusion_solid_body, Real T0)
+		: DiffusionReactionInitialCondition<SolidBody, SolidParticles, Solid>(diffusion_solid_body),
+		T0_(T0)
+	{
+		phi_ = material_->SpeciesIndexMap()["Temperature"];
+	};
+};
+
+/**
  * application dependent fluid body initial condition
  */
 class ThermofluidBodyInitialCondition
@@ -193,19 +197,20 @@ class ThermofluidBodyInitialCondition
 {
 protected:
 	size_t phi_;
-
+	Real T0_;
 	void Update(size_t index_i, Real dt) override
 	{
 
 		if (0 <= pos_n_[index_i][1] && pos_n_[index_i][1] <= DH)
 		{
-			species_n_[phi_][index_i] = phi_fluid_initial;
+			species_n_[phi_][index_i] = T0_;
 		}
 	};
 
 public:
-	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body)
-		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>(diffusion_fluid_body)
+	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body, Real T0)
+		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>(diffusion_fluid_body),
+		T0_(T0)
 	{
 		phi_ = material_->SpeciesIndexMap()["Temperature"];
 	};
@@ -350,11 +355,11 @@ public:
 	};
 };
  */
-class WaterMaterial
+class FluidMaterial
 	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
 {
 public:
-	WaterMaterial()
+	FluidMaterial()
 		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
 																  rho0_f, rho0_water, gamma_vdw, alpha_water, molmass_water, mu_f)
 	{
@@ -362,45 +367,15 @@ public:
 													diffusion_coff, bias_coff, bias_direction);
 		initializeASource("Temperature");
 	};
-	WaterMaterial(Real mu)
+	FluidMaterial(Real rho0, Real rho0_m, Real gamma, Real alpha, Real molmass, Real mu)
 		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
-																  rho0_f, rho0_water, gamma_vdw, alpha_water, molmass_water, mu)
+																  rho0, rho0_m, gamma, alpha, molmass, mu)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
 													diffusion_coff, bias_coff, bias_direction);
 		initializeASource("Temperature");
 	};
 };
-
-class AirMaterial
-	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
-{
-public:
-	AirMaterial()
-		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
-																  rho0_a, 800, gamma_vdw, 0, molmass_air, mu_a)
-	{
-		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
-													diffusion_coff, bias_coff, bias_direction);
-		initializeASource("Temperature");
-	};
-};
-/*
-class AirMaterial
-	: public DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>
-{
-public:
-	AirMaterial()
-		: DiffusionReaction<FluidParticles, WeaklyCompressibleFluid>({"Phi"}, rho0_a, c_f, mu_a)
-	{
-		initializeAnDiffusion<DirectionalDiffusion>("Phi", "Phi", diffusion_coff, bias_coff, bias_direction);
-		initializeASource("Phi");
-	};
-};
-*/
-/**
- * Setup heat conduction material properties for diffusion solid body
- */
 
 class WallMaterial
 	: public DiffusionReaction<SolidParticles, Solid>
@@ -526,9 +501,9 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		// viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
 		Real visheat = -dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
-		//internalEnergyIncrease += visheat;
+		internalEnergyIncrease += visheat;
 	}
-	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / 5 / k_B;
+	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / dof / k_B;
 }
 
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
@@ -562,7 +537,7 @@ void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Upd
 	if(index_i==67) {
 		int halt = 1;
 	}
-	Real ret = this->material_->getAlpha() * drho_dt_[index_i] * 2 / 5 / k_B;
+	Real ret = this->material_->getAlpha() * drho_dt_[index_i] * 2 / dof / k_B;
 	diffusion_dt_prior_[source_index_][index_i] += ret;
 }
 

@@ -7,17 +7,50 @@
  */
 #include "case.h"
 #include "sphinxsys.h"
+#include "SPHconfig.h"
 using namespace SPH;
 /**
  * @brief 	Main program starts here.
  */
 
+struct vdWFluidPar
+{
+	Real T0;
+	Real rho0;
+	Real alpha;
+	Real rho_m;
+	Real mu;
+	Real molmass;
+	int dof;
+	Real gamma;
+};
+struct SolidPar
+{
+	Real T0;
+};
 
 int main(int argc, char* argv[])
 {
 	/**
 	 * @brief Build up -- a SPHSystem --
 	 */
+	SPHconfig cfg;
+	vdWFluidPar water;
+	vdWFluidPar air;
+	SolidPar wall;
+	(*cfg.vdWFluids)[0].lookupValue("viscousity",air.mu);
+	(*cfg.vdWFluids)[0].lookupValue("rho_0",air.rho0);
+	(*cfg.vdWFluids)[0].lookupValue("a",air.alpha);
+	(*cfg.vdWFluids)[0].lookupValue("rho_m",air.rho_m);
+	(*cfg.vdWFluids)[0].lookupValue("gamma",air.gamma);
+	(*cfg.vdWFluids)[1].lookupValue("temperature",air.T0);
+	(*cfg.vdWFluids)[1].lookupValue("viscousity",water.mu);
+	(*cfg.vdWFluids)[1].lookupValue("rho_0",water.rho0);
+	(*cfg.vdWFluids)[1].lookupValue("a",water.alpha);
+	(*cfg.vdWFluids)[1].lookupValue("rho_m",water.rho_m);
+	(*cfg.vdWFluids)[1].lookupValue("gamma",water.gamma);
+	(*cfg.vdWFluids)[1].lookupValue("temperature",water.T0);
+	(*cfg.Solids)[0].lookupValue("temperature",wall.T0);
 	SPHSystem sph_system(system_domain_bounds, particle_spacing_ref);
 	/** Set the starting time. */
 	GlobalStaticVariables::physical_time_ = 0.0;
@@ -28,9 +61,11 @@ int main(int argc, char* argv[])
 	/**
 	 * @brief Material property, partilces and body creation of water.
 	 */
+	printf("%f, %f, %f, %f, %f, %f\n", water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu);
+
 	WaterBlock water_block(sph_system, "WaterBody");
 	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-		diffusion_fluid_body_particles(water_block, makeShared<WaterMaterial>(stof(argv[1])));
+		diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu));
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
 	WallBoundary wall_boundary(sph_system, "Wall");
 	DiffusionReactionParticles<SolidParticles, Solid>
@@ -59,8 +94,8 @@ int main(int argc, char* argv[])
 	 * @brief 	Methods used for time stepping.
 	 */
 	 /** Initialize particle acceleration. */
-	ThermosolidBodyInitialCondition thermosolid_condition(wall_boundary);
-	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block);
+	ThermosolidBodyInitialCondition thermosolid_condition(wall_boundary, wall.T0);
+	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block, water.T0);
 
 	TimeStepInitialization		initialize_a_water_step(water_block, gravity);
 
@@ -121,10 +156,10 @@ int main(int argc, char* argv[])
 	/**
 	 * @brief The time stepping starts here.
 	 */
-	correct_configuration.exec();
-	thermosolid_condition.exec();
-	thermofluid_initial_condition.exec();
-	Real dt_thermal = get_thermal_time_step.exec();
+	correct_configuration.parallel_exec();
+	thermosolid_condition.parallel_exec();
+	thermofluid_initial_condition.parallel_exec();
+	Real dt_thermal = get_thermal_time_step.parallel_exec();
 	 /** If the starting time is not zero, please setup the restart time step ro read in restart states. */
 	if (sph_system.restart_step_ != 0)
 	{
@@ -161,7 +196,7 @@ int main(int argc, char* argv[])
 	 * @brief 	Main loop starts here.
 	 */
 
-	update_water_density_by_summation.exec(1);
+	update_water_density_by_summation.parallel_exec(1);
 	while (GlobalStaticVariables::physical_time_ < End_Time)
 	{
 		Real integration_time = 0.0;
@@ -170,54 +205,54 @@ int main(int argc, char* argv[])
 		{
 			/** Acceleration due to viscous force and gravity. */
 			time_instance = tick_count::now();
-			//initialize_a_air_step.exec();
+			//initialize_a_air_step.parallel_exec();
 
-			Real Dt_f = get_water_advection_time_step_size.exec();
-			//Real Dt_a = get_air_advection_time_step_size.exec();
+			Real Dt_f = get_water_advection_time_step_size.parallel_exec();
+			//Real Dt_a = get_air_advection_time_step_size.parallel_exec();
 			Dt = Dt_f;//SMIN(Dt_f, Dt_a);
 
-			//update_air_density_by_summation.exec();
-			//air_transport_correction.exec(Dt);
+			//update_air_density_by_summation.parallel_exec();
+			//air_transport_correction.parallel_exec(Dt);
 
-			//air_viscou_acceleration.exec();
+			//air_viscou_acceleration.parallel_exec();
 
-			//surface_detection.exec();
-			//color_gradient.exec();
-			//color_gradient_interpolation.exec();
-			//wetting_norm.exec();
-			//surface_tension_acceleration.exec();
+			//surface_detection.parallel_exec();
+			//color_gradient.parallel_exec();
+			//color_gradient_interpolation.parallel_exec();
+			//wetting_norm.parallel_exec();
+			//surface_tension_acceleration.parallel_exec();
 
 			interval_computing_time_step += tick_count::now() - time_instance;
 
-			//initialize_a_air_step_thermo.exec();
+			//initialize_a_air_step_thermo.parallel_exec();
 			/** Dynamics including pressure relaxation. */
 			time_instance = tick_count::now();
 			Real relaxation_time = 0.0;
 			while (relaxation_time < Dt)
 			{
-				Real dt_f = get_water_time_step_size.exec();
-				//Real dt_a = get_air_time_step_size.exec();
+				Real dt_f = get_water_time_step_size.parallel_exec();
+				//Real dt_a = get_air_time_step_size.parallel_exec();
 				dt = SMIN(SMIN(dt_f, Dt),dt_thermal);
 				if(iframe==89){
 					int halt = 1;
 				}
-				initialize_a_water_step_thermo.exec();
-				initialize_a_water_step.exec();
-				water_viscou_acceleration.exec();
-				water_pressure_relaxation.exec(dt);
-				//air_pressure_relaxation.exec(dt);
+				initialize_a_water_step_thermo.parallel_exec();
+				initialize_a_water_step.parallel_exec();
+				water_viscou_acceleration.parallel_exec();
+				water_pressure_relaxation.parallel_exec(dt);
+				//air_pressure_relaxation.parallel_exec(dt);
 
-				update_water_density_by_summation.exec(dt);
-				water_density_relaxation.exec(dt);
-				//air_density_relaxation.exec(dt);
+				update_water_density_by_summation.parallel_exec(dt);
+				water_density_relaxation.parallel_exec(dt);
+				//air_density_relaxation.parallel_exec(dt);
 
-				//thermal_relaxation_complex_wa.exec(dt);
-				stress_tensor_heat_water.exec();
-				vdW_attr_heat_water.exec();
-				thermal_relaxation_complex_ww.exec(dt);
-				//thermal_relaxation_complex_aw.exec(dt);
-				//stress_tensor_heat_air.exec();
-				//vdW_attr_heat_air.exec();
+				//thermal_relaxation_complex_wa.parallel_exec(dt);
+				stress_tensor_heat_water.parallel_exec();
+				vdW_attr_heat_water.parallel_exec();
+				thermal_relaxation_complex_ww.parallel_exec(dt);
+				//thermal_relaxation_complex_aw.parallel_exec(dt);
+				//stress_tensor_heat_air.parallel_exec();
+				//vdW_attr_heat_air.parallel_exec();
 				relaxation_time += dt;
 				integration_time += dt;
 				GlobalStaticVariables::physical_time_ += dt;
