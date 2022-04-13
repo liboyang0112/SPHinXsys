@@ -70,7 +70,7 @@ SPHconfig::SPHconfig(){
   // Output a list of all vdWFluids in the inventory.
   try
   {
-    vdWFluids = make_unique<Setting>(root["Materials"]["vdWFluid"]);
+    vdWFluids = &(root["Materials"]["vdWFluid"]);
     int count = vdWFluids->getLength();
 
     cout << "vdWFluids:"<<endl
@@ -113,7 +113,7 @@ SPHconfig::SPHconfig(){
   // Output a list of all vdWFluids in the inventory.
   try
   {
-    Solids = make_unique<Setting>(root["Materials"]["Solid"]);
+    Solids = &(root["Materials"]["Solid"]);
     int count = Solids->getLength();
 
     cout << "Solids:"<<endl
@@ -145,6 +145,20 @@ SPHconfig::SPHconfig(){
   catch(const SettingNotFoundException &nfex)
   {
     cerr << "No Solids setting in configuration file." << endl;
+  }
+  try{
+    Job = &(root["Job"]);
+  }
+  catch(const SettingNotFoundException &nfex)
+  {
+    cerr << "No Job setting in configuration file." << endl;
+  }
+  try{
+    Job = &(root["ExternalForce"]);
+  }
+  catch(const SettingNotFoundException &nfex)
+  {
+    cerr << "No ExternalForce setting in configuration file." << endl;
   }
 }
 

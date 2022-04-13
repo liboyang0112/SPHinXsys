@@ -33,8 +33,10 @@ class SPHconfig
 {
 public:
   libconfig::Config cfg;
-  std::unique_ptr<libconfig::Setting> vdWFluids;
-  std::unique_ptr<libconfig::Setting> Solids;
+  libconfig::Setting* vdWFluids;
+  libconfig::Setting* Solids;
+  libconfig::Setting* Job;
+  libconfig::Setting* ExternalForce;
   SPHconfig();
   ~SPHconfig(){};
 };

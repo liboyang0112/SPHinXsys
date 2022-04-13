@@ -68,11 +68,11 @@ std::vector<Vecd> createWaterBlockShape()
 {
 	// geometry
 	std::vector<Vecd> water_block_shape;
-	water_block_shape.push_back(Vecd(0.375 * DL, 0.0));
 	water_block_shape.push_back(Vecd(0.375 * DL, 0.35 * DH));
+	water_block_shape.push_back(Vecd(0.375 * DL, 0.7 * DH));
+	water_block_shape.push_back(Vecd(0.625 * DL, 0.7 * DH));
 	water_block_shape.push_back(Vecd(0.625 * DL, 0.35 * DH));
-	water_block_shape.push_back(Vecd(0.625 * DL, 0.0));
-	water_block_shape.push_back(Vecd(0.375 * DL, 0.0));
+	water_block_shape.push_back(Vecd(0.375 * DL, 0.35 * DH));
 	return water_block_shape;
 }
 /** create outer wall shape */
@@ -120,10 +120,14 @@ public:
 	Real HeatCapacityRatio() { return gamma_; };
 	virtual Real DensityFromPT(Real p, Real T){};
 	virtual Real getPressure(Real rho, Real T) override;
+	virtual Real getViscosity(Real rho, Real T) override;
 	virtual Real getSoundSpeed(Real p, Real rho) override;
 	virtual vdWFluid *ThisObjectPtr() override { return this; };
 };
 
+Real vdWFluid::getViscosity(Real rho, Real T){
+	return mu_*rho/rho0_;  //constant kinematic viscosity
+}
 Real vdWFluid::getPressure(Real rho, Real T)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
@@ -455,11 +459,11 @@ public:
 	NoRiemannSolver riemann_solver_;
 
 protected:
-	Real mu_;
 	Real smoothing_length_;
 	StdLargeVec<Real> &Vol_, &rho_n_, &p_;
 	StdVec<StdLargeVec<Real>> &diffusion_dt_prior_;
 	StdLargeVec<Vecd> &vel_n_;
+	StdLargeVec<Real> &temperature_;
 	virtual void Interaction(size_t index_i, Real dt = 0.0) override;
 };
 
@@ -469,11 +473,13 @@ StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::StressTen
 	  DiffusionReactionInnerData<BodyType, BaseParticlesType, BaseMaterialType>(inner_relation),
 	  Vol_(this->particles_->Vol_), rho_n_(this->particles_->rho_n_), p_(this->particles_->p_),
 	  vel_n_(this->particles_->vel_n_),
-	  mu_(this->material_->ReferenceViscosity()),
 	  smoothing_length_(sph_adaptation_->ReferenceSmoothingLength()),
 	  diffusion_dt_prior_(this->particles_->diffusion_dt_prior_),
 	  source_index_(source_index),
-	  riemann_solver_(*(this->material_), *(this->material_)) {}
+	  riemann_solver_(*(this->material_), *(this->material_)),
+	  temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
+	  [this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){}
+
 //=================================================================================================//
 
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
@@ -500,7 +506,7 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		internalEnergyIncrease += dot(p_star * Vol_[index_j] * dW_ij * e_ij / rho_i, vij);
 		// viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
-		Real visheat = -dot(mu_ * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
+		Real visheat = -dot(this->material_->getViscosity(this->rho_n_[index_i], temperature_[index_i]) * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
 		internalEnergyIncrease += visheat;
 	}
 	diffusion_dt_prior_[source_index_][index_i] += internalEnergyIncrease * 2 / dof / k_B;
@@ -566,6 +572,34 @@ namespace SPH::fluid_dynamics
 		this->Vol_[index_i] = this->mass_[index_i] / this->rho_n_[index_i];
 		this->p_[index_i] = this->material_->getPressure(this->rho_n_[index_i], temperature_[index_i]);
 		this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
+	}
+
+	class vdWViscousAccelerationInner : public ViscousAccelerationInner
+	{
+	protected:
+		StdLargeVec<Real> &temperature_;
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+	public:
+		explicit vdWViscousAccelerationInner(BaseBodyRelationInner &inner_relation):ViscousAccelerationInner(inner_relation),
+		temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
+		[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
+		virtual ~vdWViscousAccelerationInner(){};
+	};
+
+	void vdWViscousAccelerationInner::Interaction(size_t index_i, Real dt)
+	{
+		Real rho_i = rho_n_[index_i];
+		const Vecd &vel_i = vel_n_[index_i];
+		Vecd acceleration(0), vel_derivative(0);
+		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+		{
+			size_t index_j = inner_neighborhood.j_[n];
+			//viscous force
+			vel_derivative = (vel_i - vel_n_[index_j]) / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
+			acceleration += 2.0 * this->material_->getViscosity(this->rho_n_[index_i], temperature_[index_i]) * vel_derivative * Vol_[index_j] * inner_neighborhood.dW_ij_[n] / rho_i;
+		}
+		dvel_dt_prior_[index_i] += acceleration;
 	}
 
 	template <class BaseDensityRelaxationType>
@@ -683,13 +717,7 @@ namespace SPH::fluid_dynamics
 		this->particles_->drho_dt_[index_i] = (rho_new-this->rho_sum_[index_i])/dt;
 		this->rho_sum_[index_i] = rho_new;
 	}
-	/* TBD
-	class BodyRelationInnerMultiLength : public BodyRelationInner
-	{
-		public:
-
-	};
-	*/
+	
 
 	// add particle data
 	class KortewegTermCalc : public InteractionDynamics, public FluidDataInner

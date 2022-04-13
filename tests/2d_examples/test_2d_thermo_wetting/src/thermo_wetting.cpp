@@ -38,13 +38,13 @@ int main(int argc, char* argv[])
 	vdWFluidPar water;
 	vdWFluidPar air;
 	SolidPar wall;
-	(*cfg.vdWFluids)[0].lookupValue("viscousity",air.mu);
+	(*cfg.vdWFluids)[0].lookupValue("viscosity",air.mu);
 	(*cfg.vdWFluids)[0].lookupValue("rho_0",air.rho0);
 	(*cfg.vdWFluids)[0].lookupValue("a",air.alpha);
 	(*cfg.vdWFluids)[0].lookupValue("rho_m",air.rho_m);
 	(*cfg.vdWFluids)[0].lookupValue("gamma",air.gamma);
 	(*cfg.vdWFluids)[1].lookupValue("temperature",air.T0);
-	(*cfg.vdWFluids)[1].lookupValue("viscousity",water.mu);
+	(*cfg.vdWFluids)[1].lookupValue("viscosity",water.mu);
 	(*cfg.vdWFluids)[1].lookupValue("rho_0",water.rho0);
 	(*cfg.vdWFluids)[1].lookupValue("a",water.alpha);
 	(*cfg.vdWFluids)[1].lookupValue("rho_m",water.rho_m);
@@ -88,6 +88,8 @@ int main(int argc, char* argv[])
 	 * @brief 	Define all numerical methods which are used in this case.
 	 */
 	 /** Define external force. */
+
+	cfg.Job->lookupValue("gravity",gravity_g);
 	Gravity		gravity(Vecd(0.0, -gravity_g));
 	HeatSource heat_source;
 	/**
@@ -125,7 +127,7 @@ int main(int argc, char* argv[])
 	fluid_dynamics::vdWDensityRelaxationRiemannWithWall 
 		water_density_relaxation(fluid_body_inner, water_wall_contact);
 	//fluid_dynamics::ViscousAccelerationMultiPhase
-	fluid_dynamics::ViscousAccelerationInner
+	fluid_dynamics::vdWViscousAccelerationInner
 		water_viscou_acceleration(fluid_body_inner);
 	/** Suface tension and wetting effects. */
 	fluid_dynamics::FreeSurfaceIndicationComplex
@@ -175,8 +177,11 @@ int main(int argc, char* argv[])
 	/**
 	 * @brief 	Basic parameters.
 	 */
+	int denseWriting = 0;
+	cfg.Job->lookupValue("denseWriting",denseWriting);
 	size_t number_of_iterations = sph_system.restart_step_;
 	int screen_output_interval = 30;
+	cfg.Job->lookupValue("screenOut",screen_output_interval);
 	int restart_output_interval = screen_output_interval * 10;
 	Real End_Time = 1000; 	/**< End time. */
 	Real D_Time = 1;		/**< Time stamps for output of body states. */
@@ -190,7 +195,6 @@ int main(int argc, char* argv[])
 	tick_count::interval_t interval_updating_configuration;
 	tick_count time_instance;
 	bool firstiter = 1;
-	bool denseWriting = 0;
 	int iframe = 1;
 	/**
 	 * @brief 	Main loop starts here.
