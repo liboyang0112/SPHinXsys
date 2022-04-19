@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
 	 */
 	 /** Define external force. */
 
-	cfg.Job->lookupValue("gravity",gravity_g);
+	cfg.ExternalForce->lookupValue("gravity",gravity_g);
 	Gravity		gravity(Vecd(0.0, -gravity_g));
 	HeatSource heat_source;
 	/**
@@ -187,6 +187,7 @@ int main(int argc, char* argv[])
 	Real D_Time = 1;		/**< Time stamps for output of body states. */
 	Real Dt = 0.0;			/**< Default advection time step sizes. */
 	Real dt = 0.0; 			/**< Default acoustic time step sizes. */
+	cfg.Job->lookupValue("EndTime",End_Time);
 	/** statistics for computing CPU time. */
 	tick_count t1 = tick_count::now();
 	tick_count::interval_t interval;

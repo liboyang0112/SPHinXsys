@@ -154,7 +154,7 @@ SPHconfig::SPHconfig(){
     cerr << "No Job setting in configuration file." << endl;
   }
   try{
-    Job = &(root["ExternalForce"]);
+    ExternalForce = &(root["ExternalForce"]);
   }
   catch(const SettingNotFoundException &nfex)
   {

@@ -112,6 +112,7 @@ namespace SPH
 		virtual Real getPressure(Real rho, Real rho_e) { return getPressure(rho); };
 		virtual Real DensityFromPressure(Real p) = 0;
 		virtual Real getSoundSpeed(Real p = 0.0, Real rho = 1.0) = 0;
+		virtual Real getViscosity(Real rho, Real T) {return mu_;};
 		virtual Fluid *ThisObjectPtr() override { return this; };
 	};
 

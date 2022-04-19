@@ -19,6 +19,11 @@ namespace SPH
 		dW_ij_[neighbor_n] = dW_ij_[current_size_];
 		r_ij_[neighbor_n] = r_ij_[current_size_];
 		e_ij_[neighbor_n] = e_ij_[current_size_];
+		for (int i = 0; i < W_ij_n_.size(); ++i)
+		{
+			W_ij_n_[i][neighbor_n] = W_ij_n_[i][current_size_];
+			dW_ij_n_[i][neighbor_n] = dW_ij_n_[i][current_size_];
+		}
 	}
 	//=================================================================================================//
 	void NeighborRelation::createRelation(Neighborhood &neighborhood,

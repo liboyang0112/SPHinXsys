@@ -55,6 +55,8 @@ namespace SPH
 		StdLargeVec<Real> dW_ij_; /**< derivative of kernel function or inter-particle surface contribution */
 		StdLargeVec<Real> r_ij_;  /**< distance between j and i. */
 		StdLargeVec<Vecd> e_ij_;  /**< unit vector pointing from j to i or inter-particle surface direction */
+		StdVec<StdLargeVec<Real>> W_ij_n_;  /**< kernel value or particle volume contribution */
+		StdVec<StdLargeVec<Real>> dW_ij_n_; /**< derivative of kernel function or inter-particle surface contribution */
 
 		Neighborhood() : current_size_(0), allocated_size_(0){};
 		~Neighborhood(){};
@@ -78,16 +80,16 @@ namespace SPH
 		//----------------------------------------------------------------------
 		//	Below are for constant smoothing length.
 		//----------------------------------------------------------------------
-		void createRelation(Neighborhood &neighborhood, Real &distance,
+		virtual void createRelation(Neighborhood &neighborhood, Real &distance,
 							Vecd &displacement, size_t j_index) const;
-		void initializeRelation(Neighborhood &neighborhood, Real &distance,
+		virtual void initializeRelation(Neighborhood &neighborhood, Real &distance,
 								Vecd &displacement, size_t j_index) const;
 		//----------------------------------------------------------------------
 		//	Below are for variable smoothing length.
 		//----------------------------------------------------------------------
-		void createRelation(Neighborhood &neighborhood, Real &distance,
+		virtual void createRelation(Neighborhood &neighborhood, Real &distance,
 							Vecd &displacement, size_t j_index, Real i_h_ratio, Real h_ratio_min) const;
-		void initializeRelation(Neighborhood &neighborhood, Real &distance,
+		virtual void initializeRelation(Neighborhood &neighborhood, Real &distance,
 								Vecd &displacement, size_t j_index, Real i_h_ratio, Real h_ratio_min) const;
 
 	public:

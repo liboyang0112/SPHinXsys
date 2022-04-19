@@ -116,7 +116,7 @@ namespace SPH
 	Real Kernel::W(const Real& h_ratio, const Real& r_ij, const Vec3d& displacement) const
 	{
 		Real q = r_ij * inv_h_ * h_ratio;
-		return  factor_W_3D_ * W_3D(q) * h_factor_W_3D_(h_ratio);
+		return factor_W_3D_ * W_3D(q) * h_factor_W_3D_(h_ratio);
 	}
 	//=================================================================================================//
 	Real  Kernel::W0(const Real& h_ratio, const Real& point_i)  const

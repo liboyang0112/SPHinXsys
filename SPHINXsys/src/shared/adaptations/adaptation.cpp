@@ -166,8 +166,7 @@ namespace SPH
 		Real target_ratio = spacing_ratio_max_;
 		if (ratio_ref < kernel_->KernelSize())
 		{
-			Real weight = kernel_->W_1D(ratio_ref);
-			target_ratio = weight * spacing_ratio_min_ + (1.0 - weight) * spacing_ratio_max_;
+			target_ratio += kernel_->W_1D(ratio_ref) * (spacing_ratio_min_-spacing_ratio_max_);
 		}
 		return target_ratio * spacing_ref_;
 	}
