@@ -79,8 +79,9 @@ int main(int argc, char* argv[])
 	/** topology */
 	//BodyRelationInnerMultiLength fluid_body_inner(water_block); //TBD
 	//BodyRelationInnerMultiLength solid_body_inner(wall_boundary); //TBD
-	BodyRelationInner fluid_body_inner(water_block);
-	BodyRelationInner solid_body_inner(wall_boundary);
+	StdVec<Real> lengths = {2};
+	BodyRelationInnerMultiLength fluid_body_inner(water_block,lengths);
+	BodyRelationInnerMultiLength solid_body_inner(wall_boundary,lengths);
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
 	BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});

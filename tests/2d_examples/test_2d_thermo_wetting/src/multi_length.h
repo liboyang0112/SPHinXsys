@@ -34,7 +34,9 @@ public:
 class NeighborRelationInnerMultiLength : public NeighborRelationMultiLength
 {
 public:
-	NeighborRelationInnerMultiLength(StdVec<Real> &lengths) : NeighborRelationMultiLength(lengths){}
+	NeighborRelationInnerMultiLength(SPHBody *body, StdVec<Real> &lengths);
+	void operator()(Neighborhood &neighborhood,
+					Vecd &displacement, size_t i_index, size_t j_index) const;
 };
 
 class BodyRelationInnerMultiLength : public BaseBodyRelationInner
@@ -46,18 +48,11 @@ protected:
 	NeighborRelationInnerMultiLength get_inner_neighbor_;
 	CellLinkedList *cell_linked_list_;
 public:
-	explicit BodyRelationInnerMultiLength(RealBody &real_body, StdVec<Real> lengths)
-	:BaseBodyRelationInner(real_body), lengths_(lengths), get_inner_neighbor_(lengths){
+	explicit BodyRelationInnerMultiLength(RealBody &real_body, StdVec<Real> &lengths)
+	:BaseBodyRelationInner(real_body), lengths_(lengths), get_inner_neighbor_(&real_body, lengths),
+	cell_linked_list_(DynamicCast<CellLinkedList>(this, real_body.cell_linked_list_)){
 		get_longest_search_depth_.longest = *std::max_element(lengths.begin(),lengths.end());
 	};
 	virtual ~BodyRelationInnerMultiLength(){};
-	virtual void updateConfiguration() override
-	{
-		resetNeighborhoodCurrentSize();
-		cell_linked_list_
-			->searchNeighborsByParticles(base_particles_->total_real_particles_,
-										 *base_particles_, inner_configuration_,
-										 get_particle_index_, get_longest_search_depth_,
-										 get_inner_neighbor_);
-	}
+	virtual void updateConfiguration() override;
 };
