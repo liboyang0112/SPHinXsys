@@ -90,7 +90,7 @@ SPHconfig::SPHconfig(){
       double viscousity, heatconduction, temperature, rho_0;            //initial density
 
       if(!(vdWFluid.lookupValue("name", name)
-           && vdWFluid.lookupValue("viscousity", viscousity)
+           && vdWFluid.lookupValue("viscosity", viscousity)
            && vdWFluid.lookupValue("heatconduction", heatconduction)
            && vdWFluid.lookupValue("temperature", temperature)
            && vdWFluid.lookupValue("rho_0", rho_0)))
