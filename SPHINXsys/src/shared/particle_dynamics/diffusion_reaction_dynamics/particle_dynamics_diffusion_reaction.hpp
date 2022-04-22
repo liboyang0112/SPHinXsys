@@ -64,7 +64,8 @@ namespace SPH
 			Real diff_coff_ij = species_diffusion_[m]->getInterParticleDiffusionCoff(particle_i, particle_j, e_ij);
 			size_t l = species_diffusion_[m]->gradient_species_index_;
 			Real phi_ij = species_n_[l][particle_i] - species_n_[l][particle_j];
-			diffusion_dt_[m][particle_i] += diff_coff_ij * phi_ij * surface_area_ij;
+			Real diff_ch_rate = diff_coff_ij * phi_ij * surface_area_ij;
+			diffusion_dt_[m][particle_i] += diff_ch_rate;
 		}
 	}
 	//=================================================================================================//
@@ -94,7 +95,7 @@ namespace SPH
 			Vecd &e_ij = inner_neighborhood.e_ij_[n];
 
 			const Vecd &grad_ij = particles->getKernelGradient(index_i, index_j, dW_ij_, e_ij);
-			Real area_ij = 2.0 * Vol_[index_j] * dot(grad_ij, e_ij) / r_ij_;
+			Real area_ij = 2.0 * Vol_[index_j] * dot(grad_ij, e_ij) / SMAX(r_ij_,1e-10);
 			getDiffusionChangeRate(index_i, index_j, e_ij, area_ij);
 		}
 	}

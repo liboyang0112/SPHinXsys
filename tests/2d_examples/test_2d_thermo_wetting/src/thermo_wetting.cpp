@@ -152,17 +152,17 @@ int main(int argc, char* argv[])
 	fluid_dynamics::vdWViscousAccelerationInner
 		water_viscou_acceleration(fluid_body_inner);
 	/** Suface tension and wetting effects. */
-	fluid_dynamics::FreeSurfaceIndicationComplex
-		surface_detection(fluid_body_inner, water_wall_contact);
-	fluid_dynamics::ColorFunctionGradientComplex
-		color_gradient(fluid_body_inner, water_wall_contact);
-	fluid_dynamics::ColorFunctionGradientInterplationInner
-		color_gradient_interpolation(fluid_body_inner);
-	fluid_dynamics::SurfaceTensionAccelerationInner
-		surface_tension_acceleration(fluid_body_inner, tension_force);
+//	fluid_dynamics::FreeSurfaceIndicationComplex
+//		surface_detection(fluid_body_inner, water_wall_contact);
+//	fluid_dynamics::ColorFunctionGradientComplex
+//		color_gradient(fluid_body_inner, water_wall_contact);
+//	fluid_dynamics::ColorFunctionGradientInterplationInner
+//		color_gradient_interpolation(fluid_body_inner);
+//	fluid_dynamics::SurfaceTensionAccelerationInner
+//		surface_tension_acceleration(fluid_body_inner, tension_force);
 	/** Wetting effects. */
-	fluid_dynamics::SurfaceNormWithWall
-		wetting_norm(water_wall_contact, contact_angle);
+//	fluid_dynamics::SurfaceNormWithWall
+//		wetting_norm(water_wall_contact, contact_angle);
 	/** Computing vorticity in the flow. */
 	fluid_dynamics::VorticityInner 	compute_vorticity(fluid_body_inner);
 	/** Output the body states. */
@@ -218,7 +218,8 @@ int main(int argc, char* argv[])
 	tick_count::interval_t interval_updating_configuration;
 	tick_count time_instance;
 	bool firstiter = 1;
-	int iframe = 1;
+	int debugframe = 99999;
+	cfg.Job->lookupValue("debugFrame",debugframe);
 	/**
 	 * @brief 	Main loop starts here.
 	 */
@@ -257,6 +258,9 @@ int main(int argc, char* argv[])
 			Real relaxation_time = 0.0;
 			while (relaxation_time < Dt)
 			{
+				if(debugframe==0) {
+					int halt = 1;
+				}
 				Real dt_f = exec.doexec(get_water_time_step_size);
 				//Real dt_a = exec.doexec(get_air_time_step_size);
 				dt = SMIN(dt_f, Dt);
@@ -293,7 +297,7 @@ int main(int argc, char* argv[])
 				water_wall_complex.updateConfiguration();
 				if(denseWriting) {
 					body_states_recording.writeToFile();
-					iframe++;
+					debugframe--;
 				}
 			}
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
@@ -304,7 +308,10 @@ int main(int argc, char* argv[])
 					<< GlobalStaticVariables::physical_time_
 					<< "	Dt = " << Dt << "	dt = " << dt << "\n";
 
-				if(!denseWriting) body_states_recording.writeToFile();
+				if(!denseWriting) {
+					body_states_recording.writeToFile();
+					debugframe--;
+				}
 				if (number_of_iterations % restart_output_interval == 0)
 					restart_io.writeToFile(number_of_iterations);
 			}

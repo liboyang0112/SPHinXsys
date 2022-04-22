@@ -490,7 +490,7 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 	Real pi_att=-((vdWFluid*)this->material_)->getAlpha()*rho_n_[index_i]*rho_n_[index_i];
 	Real pi = p_[index_i]-pi_att;
 	FluidState state_i(rho_n_[index_i], vel_n_[index_i], pi);
-	FluidState state_i_att(rho_n_[index_i], vel_n_[index_i], pi_att);
+//	FluidState state_i_att(rho_n_[index_i], vel_n_[index_i], pi_att);
 	Vecd vel_derivative(0);
 	Neighborhood &inner_neighborhood = this->inner_configuration_[index_i];
 	for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
@@ -503,12 +503,12 @@ void StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Inte
 		Real pj_att=-((vdWFluid*)this->material_)->getAlpha()*rho_n_[index_j]*rho_n_[index_j];
 		Real pj = p_[index_j]-pj_att;
 		FluidState state_j(rho_n_[index_j], vel_n_[index_j], pj);
-		FluidState state_j_att(rho_n_[index_j], vel_n_[index_j], pj_att);
+//		FluidState state_j_att(rho_n_[index_j], vel_n_[index_j], pj_att);
 		Real p_star = riemann_solver_.getPStar(state_i, state_j, e_ij);
-		Real p_star_att = riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
+//		Real p_star_att = riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
 		// pressure
-		internalEnergyIncrease += dot(p_star * Vol_[index_j] * dW_ij * e_ij / rho_i, vij);
-		internalEnergyIncrease += dot(p_star_att * Vol_[index_j] * dW_ij_n * e_ij / rho_i, vij);
+		internalEnergyIncrease += dot((/*p_star_att * dW_ij_n  + */p_star * dW_ij) * Vol_[index_j] * e_ij / rho_i, vij);
+//		internalEnergyIncrease -= 2.0 * ((vdWFluid*)this->material_)->getAlpha() * Vol_k[index_j] / state_j.rho_ * dot(state_i.vel_ - state_j.vel_,e_ij) * dW_ij_att;
 		// viscous
 		vel_derivative = vij / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
 		Real visheat = -dot(this->material_->getViscosity(this->rho_n_[index_i], temperature_[index_i]) * vel_derivative * Vol_[index_j] * dW_ij / rho_i, vij);
@@ -545,7 +545,7 @@ vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::vdWAttra
 template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 void vdWAttractionHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::Update(size_t index_i, Real dt)
 {
-	Real ret = this->material_->getAlpha() * drho_dt_[index_i] * 2 / dof / k_B;
+	Real ret = -this->material_->getAlpha() * drho_dt_[index_i] * 2 / dof / k_B;
 	diffusion_dt_prior_[source_index_][index_i] += ret;
 }
 
@@ -585,10 +585,11 @@ namespace SPH::fluid_dynamics
 			Real pj_att = -((vdWFluid*)this->material_)->getAlpha()*this->rho_n_[index_j]*this->rho_n_[index_j];
 			Real pj = this->p_[index_j]-pj_att;
 			FluidState state_j(this->rho_n_[index_j], this->vel_n_[index_j], pj);
-			FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
+	//		FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
 			Real p_star = this->riemann_solver_.getPStar(state_i, state_j, e_ij);
-			Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
-			acceleration -= 2.0 * (p_star * dW_ij + p_star_att * dW_ij_att) * this->Vol_[index_j] * e_ij / state_i.rho_;
+	//		Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
+			acceleration -= 2.0 * (p_star * dW_ij/* + p_star_att * dW_ij_att*/) * this->Vol_[index_j] * e_ij / state_i.rho_;
+			acceleration += 2.0 * ((vdWFluid*)this->material_)->getAlpha() * this->Vol_[index_j] * state_j.rho_ * e_ij * dW_ij_att;
 		}
 		this->dvel_dt_[index_i] = acceleration;
 	}    
@@ -602,32 +603,71 @@ namespace SPH::fluid_dynamics
 		this->pos_n_[index_i] += this->vel_n_[index_i] * dt * 0.5;
 	}
 
-	class vdWViscousAccelerationInner : public ViscousAccelerationInner
+	template <class BasePressureRelaxationType>
+	class vdWPressureRelaxation : public RelaxationWithWall<BasePressureRelaxationType>
 	{
-	protected:
-		StdLargeVec<Real> &temperature_;
-		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
 	public:
-		explicit vdWViscousAccelerationInner(BaseBodyRelationInner &inner_relation):ViscousAccelerationInner(inner_relation),
-		temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
-		[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
-		virtual ~vdWViscousAccelerationInner(){};
+		// template for different combination of constructing body relations
+		template <class BaseBodyRelationType>
+		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
+						   BaseBodyRelationContact &wall_contact_relation);
+		virtual ~vdWPressureRelaxation(){};
+	protected:
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+		virtual Vecd computeNonConservativeAcceleration(size_t index_i) override;
 	};
-
-	void vdWViscousAccelerationInner::Interaction(size_t index_i, Real dt)
+	template <class BasePressureRelaxationType>
+	template <class BaseBodyRelationType>
+	vdWPressureRelaxation<BasePressureRelaxationType>::
+		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
+						   BaseBodyRelationContact &wall_contact_relation)
+		: RelaxationWithWall<BasePressureRelaxationType>(base_body_relation, wall_contact_relation) {}
+	//=================================================================================================//
+	template <class BasePressureRelaxationType>
+	void vdWPressureRelaxation<BasePressureRelaxationType>::Interaction(size_t index_i, Real dt)
 	{
-		Real rho_i = rho_n_[index_i];
-		const Vecd &vel_i = vel_n_[index_i];
-		Vecd acceleration(0), vel_derivative(0);
-		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
-		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+		BasePressureRelaxationType::Interaction(index_i, dt);
+		Real pi_att = -((vdWFluid*)this->material_)->getAlpha()*this->rho_n_[index_i]*this->rho_n_[index_i];
+		Real pi = this->p_[index_i]-pi_att;
+		FluidState state_i(this->rho_n_[index_i], this->vel_n_[index_i], pi);
+		FluidState state_i_att(this->rho_n_[index_i], this->vel_n_[index_i], pi_att);
+		Vecd dvel_dt_prior_i = computeNonConservativeAcceleration(index_i);
+		Vecd acceleration(0.0);
+		for (size_t k = 0; k < FluidWallData::contact_configuration_.size(); ++k)
 		{
-			size_t index_j = inner_neighborhood.j_[n];
-			//viscous force
-			vel_derivative = (vel_i - vel_n_[index_j]) / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
-			acceleration += 2.0 * this->material_->getViscosity(this->rho_n_[index_i], temperature_[index_i]) * vel_derivative * Vol_[index_j] * inner_neighborhood.dW_ij_[n] / rho_i;
+			StdLargeVec<Real> &Vol_k = *(this->wall_Vol_[k]);
+			StdLargeVec<Vecd> &vel_ave_k = *(this->wall_vel_ave_[k]);
+			StdLargeVec<Vecd> &dvel_dt_ave_k = *(this->wall_dvel_dt_ave_[k]);
+			StdLargeVec<Vecd> &n_k = *(this->wall_n_[k]);
+			Neighborhood &wall_neighborhood = (*FluidWallData::contact_configuration_[k])[index_i];
+			for (size_t n = 0; n != wall_neighborhood.current_size_; ++n)
+			{
+				size_t index_j = wall_neighborhood.j_[n];
+				Vecd &e_ij = wall_neighborhood.e_ij_[n];
+				Real dW_ij = wall_neighborhood.dW_ij_[n];
+				Real dW_ij_att = 0;//wall_neighborhood.dW_ij_n_[0][n];
+				Real r_ij = wall_neighborhood.r_ij_[n];
+				Real face_wall_external_acceleration = dot((dvel_dt_prior_i - dvel_dt_ave_k[index_j]), -e_ij);
+				Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
+				Real dp = state_i.rho_ * r_ij * SMAX(0.0, face_wall_external_acceleration);
+				Real rho_in_wall = state_i.rho_;// + dp / this->material_->getSoundSpeed(state_i.p_ + 0.5 * dp, state_i.rho_); // sound speed = dp/drho
+				Real pj_att = -((vdWFluid*)this->material_)->getAlpha()*rho_in_wall*rho_in_wall;
+				Real p_in_wall = state_i.p_-pj_att;
+				FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
+				//FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
+				Real p_star = this->riemann_solver_.getPStar(state_i, state_j, n_k[index_j]);
+				//Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
+				acceleration -= 2.0 * (p_star * dW_ij/* + p_star_att * dW_ij_att*/) * e_ij * Vol_k[index_j] / state_i.rho_;
+				acceleration -= 2.0 * ((vdWFluid*)this->material_)->getAlpha() * Vol_k[index_j] / state_j.rho_ * (state_i.vel_ - state_j.vel_) * dW_ij_att;
+			}
 		}
-		dvel_dt_prior_[index_i] += acceleration;
+		this->dvel_dt_[index_i] += acceleration;
+	}
+	//=================================================================================================//
+	template <class BasePressureRelaxationType>
+	Vecd vdWPressureRelaxation<BasePressureRelaxationType>::computeNonConservativeAcceleration(size_t index_i)
+	{
+		return this->dvel_dt_prior_[index_i];
 	}
 
 	template <class BaseDensityRelaxationType>
@@ -729,72 +769,6 @@ namespace SPH::fluid_dynamics
 	}
 
 
-	template <class BasePressureRelaxationType>
-	class vdWPressureRelaxation : public RelaxationWithWall<BasePressureRelaxationType>
-	{
-	public:
-		// template for different combination of constructing body relations
-		template <class BaseBodyRelationType>
-		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
-						   BaseBodyRelationContact &wall_contact_relation);
-		virtual ~vdWPressureRelaxation(){};
-	protected:
-		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
-		virtual Vecd computeNonConservativeAcceleration(size_t index_i) override;
-	};
-	template <class BasePressureRelaxationType>
-	template <class BaseBodyRelationType>
-	vdWPressureRelaxation<BasePressureRelaxationType>::
-		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
-						   BaseBodyRelationContact &wall_contact_relation)
-		: RelaxationWithWall<BasePressureRelaxationType>(base_body_relation, wall_contact_relation) {}
-	//=================================================================================================//
-	template <class BasePressureRelaxationType>
-	void vdWPressureRelaxation<BasePressureRelaxationType>::Interaction(size_t index_i, Real dt)
-	{
-		BasePressureRelaxationType::Interaction(index_i, dt);
-		Real pi_att = -((vdWFluid*)this->material_)->getAlpha()*this->rho_n_[index_i]*this->rho_n_[index_i];
-		Real pi = this->p_[index_i]-pi_att;
-		FluidState state_i(this->rho_n_[index_i], this->vel_n_[index_i], pi);
-		FluidState state_i_att(this->rho_n_[index_i], this->vel_n_[index_i], pi_att);
-		Vecd dvel_dt_prior_i = computeNonConservativeAcceleration(index_i);
-		Vecd acceleration(0.0);
-		for (size_t k = 0; k < FluidWallData::contact_configuration_.size(); ++k)
-		{
-			StdLargeVec<Real> &Vol_k = *(this->wall_Vol_[k]);
-			StdLargeVec<Vecd> &vel_ave_k = *(this->wall_vel_ave_[k]);
-			StdLargeVec<Vecd> &dvel_dt_ave_k = *(this->wall_dvel_dt_ave_[k]);
-			StdLargeVec<Vecd> &n_k = *(this->wall_n_[k]);
-			Neighborhood &wall_neighborhood = (*FluidWallData::contact_configuration_[k])[index_i];
-			for (size_t n = 0; n != wall_neighborhood.current_size_; ++n)
-			{
-				size_t index_j = wall_neighborhood.j_[n];
-				Vecd &e_ij = wall_neighborhood.e_ij_[n];
-				Real dW_ij = wall_neighborhood.dW_ij_[n];
-				Real dW_ij_att = 0;//wall_neighborhood.dW_ij_n_[0][n];
-				Real r_ij = wall_neighborhood.r_ij_[n];
-				Real face_wall_external_acceleration = dot((dvel_dt_prior_i - dvel_dt_ave_k[index_j]), -e_ij);
-				Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
-				Real dp = state_i.rho_ * r_ij * SMAX(0.0, face_wall_external_acceleration);
-				Real rho_in_wall = state_i.rho_;// + dp / this->material_->getSoundSpeed(state_i.p_ + 0.5 * dp, state_i.rho_); // sound speed = dp/drho
-				Real pj_att = -((vdWFluid*)this->material_)->getAlpha()*rho_in_wall*rho_in_wall;
-				Real p_in_wall = state_i.p_-pj_att;
-				FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
-				FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
-				Real p_star = this->riemann_solver_.getPStar(state_i, state_j, n_k[index_j]);
-				Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
-				acceleration -= 2.0 * (p_star * dW_ij + p_star_att * dW_ij_att) * e_ij * Vol_k[index_j] / state_i.rho_;
-			}
-		}
-		this->dvel_dt_[index_i] += acceleration;
-	}
-	//=================================================================================================//
-	template <class BasePressureRelaxationType>
-	Vecd vdWPressureRelaxation<BasePressureRelaxationType>::computeNonConservativeAcceleration(size_t index_i)
-	{
-		return this->dvel_dt_prior_[index_i];
-	}
-
 	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<vdWPressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
 	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<vdWBaseDensityRelaxationInner<NoRiemannSolver>>;
 	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = ExtendPressureRelaxationWithWall<ExtendPressureRelaxation<BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
@@ -838,6 +812,35 @@ namespace SPH::fluid_dynamics
 		this->rho_sum_[index_i] = rho_new;
 	}
 	
+
+	class vdWViscousAccelerationInner : public ViscousAccelerationInner
+	{
+	protected:
+		StdLargeVec<Real> &temperature_;
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+	public:
+		explicit vdWViscousAccelerationInner(BaseBodyRelationInner &inner_relation):ViscousAccelerationInner(inner_relation),
+		temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
+		[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
+		virtual ~vdWViscousAccelerationInner(){};
+	};
+
+	void vdWViscousAccelerationInner::Interaction(size_t index_i, Real dt)
+	{
+		Real rho_i = rho_n_[index_i];
+		const Vecd &vel_i = vel_n_[index_i];
+		Vecd acceleration(0), vel_derivative(0);
+		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
+		{
+			size_t index_j = inner_neighborhood.j_[n];
+			//viscous force
+			vel_derivative = (vel_i - vel_n_[index_j]) / (inner_neighborhood.r_ij_[n] + 0.01 * smoothing_length_);
+			acceleration += 2.0 * this->material_->getViscosity(this->rho_n_[index_i], temperature_[index_i]) * vel_derivative * Vol_[index_j] * inner_neighborhood.dW_ij_[n] / rho_i;
+		}
+		dvel_dt_prior_[index_i] += acceleration;
+	}
+
 
 	// add particle data
 	class KortewegTermCalc : public InteractionDynamics, public FluidDataInner
