@@ -18,9 +18,9 @@ using namespace SPH;
 int dim=2;
 int dof = 2;
 const Real k_B = 1;
-Real DL = 42;						   /**< Tank length. */
-Real DH = 21;						   /**< Tank height. */
-Real particle_spacing_ref = DL / 100.0; /**< Initial reference particle spacing. */
+Real DL = 50;						   /**< Tank length. */
+Real DH = 50;						   /**< Tank height. */
+Real particle_spacing_ref = DL / 50.0; /**< Initial reference particle spacing. */
 
 /** Material properties. */
 Real bias_coff = 0.0;
@@ -64,11 +64,11 @@ std::vector<Vecd> createWaterBlockShape()
 {
 	// geometry
 	std::vector<Vecd> water_block_shape;
-	water_block_shape.push_back(Vecd(0.375 * DL, 0.35 * DH));
-	water_block_shape.push_back(Vecd(0.375 * DL, 0.7 * DH));
-	water_block_shape.push_back(Vecd(0.625 * DL, 0.7 * DH));
-	water_block_shape.push_back(Vecd(0.625 * DL, 0.35 * DH));
-	water_block_shape.push_back(Vecd(0.375 * DL, 0.35 * DH));
+	water_block_shape.push_back(Vecd(0.15 * DL, 0.35 * DH));
+	water_block_shape.push_back(Vecd(0.15 * DL, 0.7 * DH));
+	water_block_shape.push_back(Vecd(0.85 * DL, 0.7 * DH));
+	water_block_shape.push_back(Vecd(0.85 * DL, 0.35 * DH));
+	water_block_shape.push_back(Vecd(0.15 * DL, 0.35 * DH));
 	return water_block_shape;
 }
 /** create outer wall shape */
@@ -133,6 +133,7 @@ Real vdWFluid::getPressure(Real rho, Real T)
 	if (ret != ret)
 	{
 		printf("WARNING: Pressure is NAN\n");
+		int halt = 1;
 		exit(0);
 	}
 	// if(ret<-100000){
@@ -587,8 +588,7 @@ namespace SPH::fluid_dynamics
 			FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
 			Real p_star = this->riemann_solver_.getPStar(state_i, state_j, e_ij);
 			Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
-			acceleration -= 2.0 * p_star * this->Vol_[index_j] * dW_ij * e_ij / state_i.rho_;
-			acceleration -= 2.0 * p_star_att * this->Vol_[index_j] * dW_ij_att * e_ij / state_i.rho_;
+			acceleration -= 2.0 * (p_star * dW_ij + p_star_att * dW_ij_att) * this->Vol_[index_j] * e_ij / state_i.rho_;
 		}
 		this->dvel_dt_[index_i] = acceleration;
 	}    
@@ -727,7 +727,75 @@ namespace SPH::fluid_dynamics
 		}
 		this->drho_dt_[index_i] += density_change_rate;
 	}
-	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<PressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
+
+
+	template <class BasePressureRelaxationType>
+	class vdWPressureRelaxation : public RelaxationWithWall<BasePressureRelaxationType>
+	{
+	public:
+		// template for different combination of constructing body relations
+		template <class BaseBodyRelationType>
+		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
+						   BaseBodyRelationContact &wall_contact_relation);
+		virtual ~vdWPressureRelaxation(){};
+	protected:
+		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
+		virtual Vecd computeNonConservativeAcceleration(size_t index_i) override;
+	};
+	template <class BasePressureRelaxationType>
+	template <class BaseBodyRelationType>
+	vdWPressureRelaxation<BasePressureRelaxationType>::
+		vdWPressureRelaxation(BaseBodyRelationType &base_body_relation,
+						   BaseBodyRelationContact &wall_contact_relation)
+		: RelaxationWithWall<BasePressureRelaxationType>(base_body_relation, wall_contact_relation) {}
+	//=================================================================================================//
+	template <class BasePressureRelaxationType>
+	void vdWPressureRelaxation<BasePressureRelaxationType>::Interaction(size_t index_i, Real dt)
+	{
+		BasePressureRelaxationType::Interaction(index_i, dt);
+		Real pi_att = -((vdWFluid*)this->material_)->getAlpha()*this->rho_n_[index_i]*this->rho_n_[index_i];
+		Real pi = this->p_[index_i]-pi_att;
+		FluidState state_i(this->rho_n_[index_i], this->vel_n_[index_i], pi);
+		FluidState state_i_att(this->rho_n_[index_i], this->vel_n_[index_i], pi_att);
+		Vecd dvel_dt_prior_i = computeNonConservativeAcceleration(index_i);
+		Vecd acceleration(0.0);
+		for (size_t k = 0; k < FluidWallData::contact_configuration_.size(); ++k)
+		{
+			StdLargeVec<Real> &Vol_k = *(this->wall_Vol_[k]);
+			StdLargeVec<Vecd> &vel_ave_k = *(this->wall_vel_ave_[k]);
+			StdLargeVec<Vecd> &dvel_dt_ave_k = *(this->wall_dvel_dt_ave_[k]);
+			StdLargeVec<Vecd> &n_k = *(this->wall_n_[k]);
+			Neighborhood &wall_neighborhood = (*FluidWallData::contact_configuration_[k])[index_i];
+			for (size_t n = 0; n != wall_neighborhood.current_size_; ++n)
+			{
+				size_t index_j = wall_neighborhood.j_[n];
+				Vecd &e_ij = wall_neighborhood.e_ij_[n];
+				Real dW_ij = wall_neighborhood.dW_ij_[n];
+				Real dW_ij_att = 0;//wall_neighborhood.dW_ij_n_[0][n];
+				Real r_ij = wall_neighborhood.r_ij_[n];
+				Real face_wall_external_acceleration = dot((dvel_dt_prior_i - dvel_dt_ave_k[index_j]), -e_ij);
+				Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
+				Real dp = state_i.rho_ * r_ij * SMAX(0.0, face_wall_external_acceleration);
+				Real rho_in_wall = state_i.rho_;// + dp / this->material_->getSoundSpeed(state_i.p_ + 0.5 * dp, state_i.rho_); // sound speed = dp/drho
+				Real pj_att = -((vdWFluid*)this->material_)->getAlpha()*rho_in_wall*rho_in_wall;
+				Real p_in_wall = state_i.p_-pj_att;
+				FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
+				FluidState state_j_att(this->rho_n_[index_j], this->vel_n_[index_j], pj_att);
+				Real p_star = this->riemann_solver_.getPStar(state_i, state_j, n_k[index_j]);
+				Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
+				acceleration -= 2.0 * (p_star * dW_ij + p_star_att * dW_ij_att) * e_ij * Vol_k[index_j] / state_i.rho_;
+			}
+		}
+		this->dvel_dt_[index_i] += acceleration;
+	}
+	//=================================================================================================//
+	template <class BasePressureRelaxationType>
+	Vecd vdWPressureRelaxation<BasePressureRelaxationType>::computeNonConservativeAcceleration(size_t index_i)
+	{
+		return this->dvel_dt_prior_[index_i];
+	}
+
+	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<vdWPressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
 	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<vdWBaseDensityRelaxationInner<NoRiemannSolver>>;
 	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = ExtendPressureRelaxationWithWall<ExtendPressureRelaxation<BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
 	using vdWMultiPhaseDensityRelaxationRiemannWithWall = vdWDensityRelaxation<BaseDensityRelaxationMultiPhase<BaseDensityRelaxationInner<NoRiemannSolver>>>;
@@ -752,7 +820,7 @@ namespace SPH::fluid_dynamics
 		Real sigma = W0_;
 		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
-			sigma += inner_neighborhood.W_ij_[n];
+			sigma += inner_neighborhood.W_ij_n_[0][n];
 		/** Contact interaction. */
 		Real inv_Vol_0_i = rho0_ / mass_[index_i];
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)

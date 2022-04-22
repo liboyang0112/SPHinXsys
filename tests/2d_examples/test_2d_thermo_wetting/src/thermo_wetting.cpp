@@ -259,7 +259,7 @@ int main(int argc, char* argv[])
 			{
 				Real dt_f = exec.doexec(get_water_time_step_size);
 				//Real dt_a = exec.doexec(get_air_time_step_size);
-				dt = SMIN(SMIN(dt_f, Dt),dt_thermal);
+				dt = SMIN(dt_f, Dt);
 				exec.doexec(initialize_a_water_step_thermo);
 				exec.doexec(initialize_a_water_step);
 				exec.doexec(water_viscou_acceleration);
@@ -273,7 +273,12 @@ int main(int argc, char* argv[])
 				//exec.doexec(thermal_relaxation_complex_wa,dt);
 				exec.doexec(stress_tensor_heat_water);
 				//exec.doexec(vdW_attr_heat_water);
-				exec.doexec(thermal_relaxation_complex_ww,dt);
+				if(dt_thermal < dt){
+					int steps = 1+dt/dt_thermal;
+					for(int i = 0; i < steps;i++)
+					exec.doexec(thermal_relaxation_complex_ww,dt/steps);
+				}else
+					exec.doexec(thermal_relaxation_complex_ww,dt);
 				//exec.doexec(thermal_relaxation_complex_aw,dt);
 				//exec.doexec(stress_tensor_heat_air);
 				//exec.doexec(vdW_attr_heat_air);

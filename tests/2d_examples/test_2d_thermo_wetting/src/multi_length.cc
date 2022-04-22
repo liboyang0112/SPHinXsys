@@ -21,7 +21,7 @@ void NeighborRelationInnerMultiLength::operator()(Neighborhood &neighborhood,
 		neighborhood.dW_ij_n_.resize(lengths_.size());
 		neighborhood.W_ij_n_.resize(lengths_.size());
 	}
-	if (distance < kernel_->CutOffRadius() && i_index != j_index)
+	if (distance < kernel_->CutOffRadius(1./longest) && i_index != j_index)
 	{
 		neighborhood.current_size_ >= neighborhood.allocated_size_
 			? createRelation(neighborhood, distance, displacement, j_index)
