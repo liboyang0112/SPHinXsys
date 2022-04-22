@@ -1,5 +1,14 @@
 # ![](SPHINXsys/logo.png) SPHinXsys
 
+## This branch development: test_2d_thermo_wetting
+
+Additionally required package: libconfig++
+
+For Ubuntu system, you can insall it simply by:
+```shell
+sudo apt-get install libconfig-dev
+```
+
 ## Description
 
 SPHinXsys (pronunciation: s'finksis) is an acronym from Smoothed Particle Hydrodynamics for industrial compleX systems. 
