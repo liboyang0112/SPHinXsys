@@ -4,10 +4,10 @@ Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
 ehthumbs_vista.db
-
+# vscode cache files
+.vscode
 # Dump file
 *.stackdump
-
 # Folder config file
 [Dd]esktop.ini
 

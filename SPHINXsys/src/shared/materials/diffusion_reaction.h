@@ -126,7 +126,7 @@ namespace SPH
 												   size_t particle_index_j, Vecd &inter_particle_direction) override
 		{
 			Vecd grad_ij = transformed_diffusivity_ * inter_particle_direction;
-			return 1.0 / grad_ij.scalarNormSqr();
+			return 1.0 / SMAX(grad_ij.scalarNormSqr(),1e-10);
 		};
 	};
 

@@ -101,20 +101,22 @@ std::vector<Vecd> createInnerWallShape()
  * @brief 	Case dependent material properties definition.
  */
 
-class vdWFluid : public CompressibleFluid
+class vdWFluid : public Fluid
 {
 public:
 	explicit vdWFluid(Real rho0, Real rho_max, Real gamma, Real alpha, Real molmass, Real mu = 0.0)
 		// rho0 is the density maximum
-		: CompressibleFluid(rho0, gamma, mu), alpha_(alpha), molmass_(molmass), rho_max_(rho_max)
+		: Fluid(rho0, mu), alpha_(alpha), molmass_(molmass), rho_max_(rho_max),  gamma_(gamma)
 	{
 		material_type_ = "vdWFluid";
 	};
-	Real alpha_, molmass_, rho_max_; // alpha is the attraction force
+	Real alpha_, molmass_, rho_max_, gamma_; // alpha is the attraction force
 	virtual ~vdWFluid(){};
 	Real getAlpha() { return alpha_; }
 	Real HeatCapacityRatio() { return gamma_; };
 	virtual Real DensityFromPT(Real p, Real T){};
+	virtual Real getPressure(Real rho) override {return 0;};
+	virtual Real DensityFromPressure(Real p) override {return 0;};
 	virtual Real getPressure(Real rho, Real T) override;
 	virtual Real getViscosity(Real rho, Real T) override;
 	virtual Real getSoundSpeed(Real p, Real rho) override;
@@ -196,7 +198,7 @@ public:
  * application dependent fluid body initial condition
  */
 class ThermofluidBodyInitialCondition
-	: public DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>
+	: public DiffusionReactionInitialCondition<FluidBody, FluidParticles, vdWFluid>
 {
 protected:
 	size_t phi_;
@@ -212,7 +214,7 @@ protected:
 
 public:
 	ThermofluidBodyInitialCondition(FluidBody &diffusion_fluid_body, Real T0)
-		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>(diffusion_fluid_body),
+		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, vdWFluid>(diffusion_fluid_body),
 		T0_(T0)
 	{
 		phi_ = material_->SpeciesIndexMap()["Temperature"];
@@ -223,7 +225,7 @@ public:
  * application dependent gas body initial condition
  */
 class ThermogasBodyInitialCondition
-	: public DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>
+	: public DiffusionReactionInitialCondition<FluidBody, FluidParticles, vdWFluid>
 {
 protected:
 	size_t phi_;
@@ -239,7 +241,7 @@ protected:
 
 public:
 	ThermogasBodyInitialCondition(FluidBody &diffusion_fluid_body)
-		: DiffusionReactionInitialCondition<FluidBody, CompressibleFluidParticles, vdWFluid>(diffusion_fluid_body)
+		: DiffusionReactionInitialCondition<FluidBody, FluidParticles, vdWFluid>(diffusion_fluid_body)
 	{
 		phi_ = material_->SpeciesIndexMap()["Temperature"];
 	};
@@ -264,9 +266,9 @@ public:
  */
 class ThermalRelaxationComplex
 	: public RelaxationOfAllDiffusionSpeciesRK2<
-		  FluidBody, CompressibleFluidParticles, vdWFluid,
+		  FluidBody, FluidParticles, vdWFluid,
 		  RelaxationOfAllDiffussionSpeciesComplex<
-			  FluidBody, CompressibleFluidParticles, vdWFluid, SolidBody, SolidParticles, Solid>,
+			  FluidBody, FluidParticles, vdWFluid, SolidBody, SolidParticles, Solid>,
 		  ComplexBodyRelation>
 {
 public:
@@ -359,11 +361,11 @@ public:
 };
  */
 class FluidMaterial
-	: public DiffusionReaction<CompressibleFluidParticles, vdWFluid>
+	: public DiffusionReaction<FluidParticles, vdWFluid>
 {
 public:
 	FluidMaterial(Real diffusion_coff)
-		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
+		: DiffusionReaction<FluidParticles, vdWFluid>({"Temperature"},
 																  rho0_f, rho0_water, gamma_vdw, alpha_water, molmass_water, mu_f)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",
@@ -371,7 +373,7 @@ public:
 		initializeASource("Temperature");
 	};
 	FluidMaterial(Real rho0, Real rho0_m, Real gamma, Real alpha, Real molmass, Real mu, Real diffusion_coff)
-		: DiffusionReaction<CompressibleFluidParticles, vdWFluid>({"Temperature"},
+		: DiffusionReaction<FluidParticles, vdWFluid>({"Temperature"},
 																  rho0, rho0_m, gamma, alpha, molmass, mu)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature",

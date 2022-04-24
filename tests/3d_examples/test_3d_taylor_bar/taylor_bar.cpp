@@ -15,7 +15,7 @@ int main(int ac, char *av[])
 	/** Setup the system. Please the make sure the global domain bounds are correctly defined. */
 	SPHSystem system(system_domain_bounds, particle_spacing_ref);
 	system.run_particle_relaxation_ = false;
-	system.reload_particles_ = true;
+	system.reload_particles_ = false;
 //handle command line arguments
 #ifdef BOOST_AVAILABLE
 	system.handleCommandlineOptions(ac, av);

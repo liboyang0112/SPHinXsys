@@ -260,8 +260,8 @@ ENDIF()
 set(TBB_LIBRARYS ${TBB_LIBS})
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(TBB DEFAULT_MSG 
-  TBB_INCLUDE_DIR TBB_LIB_DIR TBB_LIBRARYS)
+#find_package_handle_standard_args(TBB DEFAULT_MSG 
+#  TBB_INCLUDE_DIR TBB_LIB_DIR TBB_LIBRARYS)
 
 #=============================================================================
 

@@ -4,9 +4,14 @@
 
 Additionally required package: libconfig++
 
-For Ubuntu system, you can insall it simply by:
+For Ubuntu system, you can install it simply by:
 ```shell
 sudo apt-get install libconfig-dev
+```
+
+Instead of compiling tbb and simbody from source, you can install them simply by:
+```shell
+sudo apt-get install libtbb-dev libsimbody-dev
 ```
 
 ## Description

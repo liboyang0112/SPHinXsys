@@ -84,7 +84,7 @@ int main(int argc, char* argv[])
 	cfg.Job->lookupValue("adaptation",adaptation);
 	auto adp = makeShared<SPHAdaptation>(adaptation, 1);
 	WaterBlock water_block(sph_system, "WaterBody", adp);
-	DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
+	DiffusionReactionParticles<FluidParticles, vdWFluid>
 		diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff));
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
 	WallBoundary wall_boundary(sph_system, "Wall", BW);
@@ -123,13 +123,13 @@ int main(int argc, char* argv[])
 
 	TimeStepInitialization		initialize_a_water_step(water_block, gravity);
 
-	DiffusionSourceInitialization<FluidBody, CompressibleFluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
-	StressTensorHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
-	vdWAttractionHeatSource<FluidBody, CompressibleFluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
+	DiffusionSourceInitialization<FluidBody, FluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
+	StressTensorHeatSource<FluidBody, FluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
+	vdWAttractionHeatSource<FluidBody, FluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
 	/** Corrected strong configuration for diffusion solid body. */
 	solid_dynamics::CorrectConfiguration 			correct_configuration(solid_body_inner);
 	/** Time step size calculation. */
-	GetDiffusionTimeStepSize<FluidBody, CompressibleFluidParticles, vdWFluid> get_thermal_time_step(water_block);
+	GetDiffusionTimeStepSize<FluidBody, FluidParticles, vdWFluid> get_thermal_time_step(water_block);
 	/** Diffusion process between three diffusion bodies. */
 	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
