@@ -9,10 +9,11 @@ For Ubuntu system, you can install it simply by:
 sudo apt-get install libconfig-dev
 ```
 
-Instead of compiling tbb and simbody from source, you can install them simply by:
+For Ubuntu system, instead of compiling tbb and simbody from source, you can install them simply by:
 ```shell
 sudo apt-get install libtbb-dev libsimbody-dev
 ```
+The complex installation in the tutorial is not needed.
 
 ## Description
 
