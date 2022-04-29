@@ -49,16 +49,16 @@ namespace SPH
 		{
 			diffusion_dt_[m][particle_i] = 0;
 		}
-		for (int m = 0; m < species_diffusion_source_index_.size(); ++m)
-		{
-			diffusion_dt_[species_diffusion_source_index_[m]][particle_i] = diffusion_dt_prior_[m][particle_i];
-		}
 	}
 	//=================================================================================================//
 	template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 	void RelaxationOfAllDiffussionSpeciesInner<BodyType, BaseParticlesType, BaseMaterialType>::
 		getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij)
-	{
+	{		
+		if(particle_i == 576){
+			int halt = 1;
+		}
+
 		for (size_t m = 0; m < species_diffusion_.size(); ++m)
 		{
 			Real diff_coff_ij = species_diffusion_[m]->getInterParticleDiffusionCoff(particle_i, particle_j, e_ij);
@@ -91,11 +91,12 @@ namespace SPH
 		{
 			size_t index_j = inner_neighborhood.j_[n];
 			Real dW_ij_ = inner_neighborhood.dW_ij_[n];
+			if(dW_ij_ == 0) continue;
 			Real r_ij_ = inner_neighborhood.r_ij_[n];
 			Vecd &e_ij = inner_neighborhood.e_ij_[n];
 
 			const Vecd &grad_ij = particles->getKernelGradient(index_i, index_j, dW_ij_, e_ij);
-			Real area_ij = 2.0 * Vol_[index_j] * dot(grad_ij, e_ij) / SMAX(r_ij_,1e-10);
+			Real area_ij = 2.0 * Vol_[index_j] * dot(grad_ij, e_ij) / r_ij_;
 			getDiffusionChangeRate(index_i, index_j, e_ij, area_ij);
 		}
 	}

@@ -7,14 +7,14 @@ class phaseTransition : public lowTType, public highTType
 public:
 	Real transitionT_ = 0.5;
 	Real epsilon_ = 1e-3;
-	Real latentHeat = 3;
+	Real latent_heat_ = 3;
 	phaseTransitionMaterial(libconfig::Setting* phaseTransitionConfig) : 
 	DiffusionReaction<lowTParticlesType, lowTType>((*phaseTransitionConfig)["lowTphase"]),
 	DiffusionReaction<highTParticlesType, highTType>((*phaseTransitionConfig)["highTphase"])
 	{
 		(*phaseTransitionConfig)["transitionConfig"].lookupValue("transitionT",transitionT_);
 		(*phaseTransitionConfig)["transitionConfig"].lookupValue("epsilon_",epsilon_);
-		(*phaseTransitionConfig)["transitionConfig"].lookupValue("latentHeat",latentHeat);
+		(*phaseTransitionConfig)["transitionConfig"].lookupValue("latent_heat_",latent_heat_);
 	};
 }
 
@@ -49,14 +49,9 @@ public:
 phaseTransitionParticles
 
 using phaseTransitionMaterial<
-							DiffusionReaction<SolidParticles, Solid>,
+							DiffusionReaction<ElasticSolidParticles, ElasticSolid>,
 							DiffusionReaction<CompressibleFluidParticles, vdWFluid>
 						> = vdWphaseTransitionMaterial
-
-phaseTransitionParticles<	
-							DiffusionReactionParticles<SolidParticles, Solid>,
-							DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
-						> (water_block, phaseTransitionConfig)
 
 class WaterBlock : public FluidBody
 {
@@ -70,3 +65,59 @@ public:
 		body_shape_.add<MultiPolygonShape>(multi_polygon);
 	}
 };
+
+
+phaseTransitionDynamics<	
+							DiffusionReactionParticles<SolidParticles, Solid>,
+							DiffusionReactionParticles<CompressibleFluidParticles, vdWFluid>
+						> (p1, p2, phaseTransitionConfig){
+							phaseTransitionDynamicsLowT d1;
+							phaseTransitionDynamicsHighT d1;
+						}
+
+phaseTransitionDynamics::exec(){
+	d1.exec();
+	d2.exec();
+}
+
+static enum PhaseIndex{lowT=-1,T0=0,highT=1};
+class BasePhaseTransitionDynamics{
+protected:
+	processLatentHeat(int index_i, Real dT, PhaseIndex pi);
+}
+class phaseTransitionDynamicsLowT: public BasePhaseTransitionDynamics, public InteractionDynamics<void>{
+	interaction(int index_i);
+}
+class phaseTransitionDynamicsHighT: public BasePhaseTransitionDynamics, public InteractionDynamics<void>{
+	interaction(int index_i);
+}
+
+BasePhaseTransitionDynamics::processLatentHeat(int index_i, PhaseIndex pi){
+	Real dT = (transfer_T_-temperature_[index_i])*pi;
+	if(dT<0){
+		if(latent_heat_storage_[index_i]==0){
+			return;
+		}else if(latent_heat_storage_[index_i]>-dT){
+			latent_heat_storage_[index_i]+=dT;
+			temperature_[index_i] = transfer_T_;
+		}else {
+			temperature_[index_i]-=pi*latent_heat_storage_[index_i];
+			latent_heat_storage_[index_i] = 0;
+		}
+	}else{
+		if((latent_heat_storage_[index_i]+=dT) >= latent_heat_){
+			temperature_p2_[particleTransfer(index_i)] += pi*(latent_heat_storage_[index_i]-latent_heat_);
+		}
+	}
+}
+size_t BasePhaseTransitionDynamics::particleTransfer(int index_i){
+	size_t new_index =　copyParticleToP2();
+	destroyParticle();
+	return new_index;
+}
+phaseTransitionDynamicsLowT::interaction(int index_i){
+		processLatentHeat(index_i,lowT);
+}
+phaseTransitionDynamicshighT::interaction(int index_i){
+		processLatentHeat(index_i,highT);
+}

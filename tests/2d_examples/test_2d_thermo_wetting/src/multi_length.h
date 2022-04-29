@@ -1,4 +1,5 @@
-
+#ifndef __MULTI_LENGTH
+#define __MULTI_LENGTH
 #include "sphinxsys.h"
 
 using namespace SPH;
@@ -13,20 +14,6 @@ struct SearchDepthMultiLength
 	int operator()(size_t particle_index) const { 
 		return search_depth_; 
 	};
-};
-
-
-struct SearchDepthMultiLengthAndResolution
-{
-	int search_depth_ = 1;
-	SearchDepthMultiLengthAndResolution(SPHBody &sph_body, CellLinkedList *target_cell_linked_list, StdVec<Real> &lengths)
-		: search_depth_(1)
-	{
-		search_depth_ = ceil(sph_body.sph_adaptation_->getKernel()->CutOffRadius() 
-		/ target_cell_linked_list->GridSpacing()
-		* *std::max_element(lengths.begin(),lengths.end()));
-	};
-	int operator()(size_t particle_index) const { return search_depth_; };
 };
 
 class NeighborRelationMultiLength: public NeighborRelation
@@ -74,3 +61,4 @@ public:
 	virtual void updateConfiguration() override;
 };
 
+#endif

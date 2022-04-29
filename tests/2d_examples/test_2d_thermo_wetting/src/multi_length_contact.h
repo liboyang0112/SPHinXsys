@@ -1,70 +1,41 @@
+#ifndef __MULTI_LENGTH_CONTACT
+#define __MULTI_LENGTH_CONTACT
 #include "multi_length.h"
 
-	class BodyRelationContactMultiLength : public BaseBodyRelationContact
+struct SearchDepthMultiLengthAndResolution
+{
+	int search_depth_ = 1;
+	SearchDepthMultiLengthAndResolution(SPHBody &sph_body, CellLinkedList *target_cell_linked_list, StdVec<Real> &lengths)
+		: search_depth_(1)
 	{
-	protected:
-		SPHBodyParticlesIndex get_particle_index_;
-
-		void initialization();
-
-	public:
-		BodyRelationContact(SPHBody &sph_body, RealBodyVector contact_bodies);
-		BodyRelationContact(SPHBody &sph_body, BodyPartVector contact_body_parts);
-		virtual ~BodyRelationContact(){};
-		virtual void updateConfiguration() override;
+		search_depth_ = ceil(sph_body.sph_adaptation_->getKernel()->CutOffRadius() 
+		/ target_cell_linked_list->GridSpacing()
+		* *std::max_element(lengths.begin(),lengths.end()));
 	};
+	int operator()(size_t particle_index) const { return search_depth_; };
+};
 
-
-	class NeighborRelationContact : public NeighborRelationMultiLength
-	{
-	public:
-		NeighborRelationContact(SPHBody *body, SPHBody *contact_body);
-		virtual ~NeighborRelationContact(){};
-		void operator()(Neighborhood &neighborhood,
-						Vecd &displacement, size_t i_index, size_t j_index) const;
-	};
-
+class NeighborRelationContactMultiLength : public NeighborRelationMultiLength
+{
+public:
+	NeighborRelationContactMultiLength(SPHBody *body, SPHBody *contact_body, StdVec<Real> &lengths);
+	virtual ~NeighborRelationContactMultiLength(){};
+	void operator()(Neighborhood &neighborhood,
+					Vecd &displacement, size_t i_index, size_t j_index) const;
+};
 
 class BodyRelationContactMultiLength : public BaseBodyRelationContact
 {
 protected:
 	StdVec<Real> &lengths_;
-	UniquePtrVectorKeeper<SearchDepthMultiResolution> search_depth_multi_resolution_ptr_vector_keeper_;
-	UniquePtrVectorKeeper<NeighborRelationContact> neighbor_relation_contact_ptr_vector_keeper_;
-protected:
-	StdVec<CellLinkedList *> target_cell_linked_lists_;
-	StdVec<SearchDepthMultiResolution *> get_search_depths_;
-	StdVec<NeighborRelationContactMultiLength *> get_contact_neighbors_;
-	virtual void resetNeighborhoodCurrentSize();
+	SPHBodyParticlesIndex get_particle_index_;
+	StdVec<unique_ptr<SearchDepthMultiLengthAndResolution>> get_search_depths_multi_lengths_;
+	StdVec<unique_ptr<NeighborRelationContactMultiLength>> get_contact_neighbors_multi_lengths_;
+	void initialization();
 public:
-	RealBodyVector contact_bodies_;
-	ContatcParticleConfiguration contact_configuration_; /**< Configurations for particle interaction between bodies. */
-	BaseBodyRelationContact(SPHBody &sph_body, RealBodyVector contact_bodies);
-	BaseBodyRelationContact(SPHBody &sph_body, BodyPartVector contact_body_parts);
-	virtual ~BaseBodyRelationContact(){};
-	virtual void updateConfigurationMemories() override;
+	BodyRelationContactMultiLength(SPHBody &sph_body, RealBodyVector contact_bodies, StdVec<SPH::Real> &lengths);
+	BodyRelationContactMultiLength(SPHBody &sph_body, BodyPartVector contact_body_parts, StdVec<SPH::Real> &lengths);
+	virtual ~BodyRelationContactMultiLength(){};
+	virtual void updateConfiguration() override;
 };
-
-
-	class ComplexBodyRelation : public SPHBodyRelation
-	{
-	private:
-		UniquePtrKeeper<BaseBodyRelationInner> base_body_relation_inner_ptr_keeper_;
-		UniquePtrKeeper<BaseBodyRelationContact> base_body_relation_contact_ptr_keeper_;
-
-	public:
-		BaseBodyRelationInner &inner_relation_;
-		BaseBodyRelationContact &contact_relation_;
-		RealBodyVector contact_bodies_;
-		ParticleConfiguration &inner_configuration_;
-		ContatcParticleConfiguration &contact_configuration_;
-
-		ComplexBodyRelation(BaseBodyRelationInner &inner_relation, BaseBodyRelationContact &contact_relation);
-		ComplexBodyRelation(RealBody &real_body, RealBodyVector contact_bodies);
-		ComplexBodyRelation(BaseBodyRelationInner &inner_relation, RealBodyVector contact_bodies);
-		ComplexBodyRelation(RealBody &real_body, BodyPartVector contact_body_parts);
-		virtual ~ComplexBodyRelation(){};
-
-		virtual void updateConfigurationMemories() override;
-		virtual void updateConfiguration() override;
-	};
+#endif

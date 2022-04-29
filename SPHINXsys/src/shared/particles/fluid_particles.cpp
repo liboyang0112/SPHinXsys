@@ -38,6 +38,7 @@ namespace SPH
 		//		add restart output particle data
 		//----------------------------------------------------------------------
 		addAVariableNameToList<indexScalar, Real>(variables_to_restart_, "Pressure");
+		addAVariableToWrite<indexScalar, Real>("Pressure");
 	}
 	//=================================================================================================//
 	ViscoelasticFluidParticles::
@@ -78,10 +79,6 @@ namespace SPH
 		registerAVariable<indexScalar, Real>(E_, "TotalEnergy");
 		registerAVariable<indexScalar, Real>(dE_dt_, "TotalEnergyChangeRate");
 		registerAVariable<indexScalar, Real>(dE_dt_prior_, "OtherEnergyChangeRate");
-		//----------------------------------------------------------------------
-		//		add output particle data
-		//----------------------------------------------------------------------
-		addAVariableToWrite<indexScalar, Real>("Pressure");
 	}
 	//=================================================================================================//
 }

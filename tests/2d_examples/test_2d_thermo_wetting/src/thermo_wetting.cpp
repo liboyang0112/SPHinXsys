@@ -49,6 +49,7 @@ int main(int argc, char* argv[])
 	vdWFluidPar air;
 	SolidPar wall;
 	execClass exec;
+	Real adaptation = 1.3;
 	(*cfg.vdWFluids)[0].lookupValue("viscosity",air.mu);
 	(*cfg.vdWFluids)[0].lookupValue("rho_0",air.rho0);
 	(*cfg.vdWFluids)[0].lookupValue("a",air.alpha);
@@ -66,7 +67,8 @@ int main(int argc, char* argv[])
 	(*cfg.Solids)[0].lookupValue("diffusion_coff",wall.diffusion_coff);
 	cfg.Job->lookupValue("particle_spacing_ref",particle_spacing_ref);
 	cfg.Job->lookupValue("doParallel",exec.doParallel);
-	Real BW = particle_spacing_ref * 4;
+	cfg.Job->lookupValue("adaptation",adaptation);
+	Real BW = particle_spacing_ref * 4 * adaptation;
 	BoundingBox system_domain_bounds(Vec2d(-BW, -BW), Vec2d(DL + BW, DH + BW));
 	SPHSystem sph_system(system_domain_bounds, particle_spacing_ref);
 	/** Set the starting time. */
@@ -79,15 +81,12 @@ int main(int argc, char* argv[])
 	 * @brief Material property, partilces and body creation of water.
 	 */
 	printf("%f, %f, %f, %f, %f, %f\n", water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff);
-	Real adaptation = 1.3;
 
-	cfg.Job->lookupValue("adaptation",adaptation);
 	auto adp = makeShared<SPHAdaptation>(adaptation, 1);
 	WaterBlock water_block(sph_system, "WaterBody", adp);
-	DiffusionReactionParticles<FluidParticles, vdWFluid>
-		diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff));
+	vdWParticles diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff));
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
-	WallBoundary wall_boundary(sph_system, "Wall", BW);
+	WallBoundary wall_boundary(sph_system, "Wall", BW, adp);
 	DiffusionReactionParticles<SolidParticles, Solid>
 		wall_particles(wall_boundary, makeShared<WallMaterial>(wall.diffusion_coff));
 
@@ -97,14 +96,14 @@ int main(int argc, char* argv[])
 	 * @brief Material property, partilces and body creation of air.
 	 */
 	/** topology */
-	//BodyRelationInnerMultiLength fluid_body_inner(water_block); //TBD
-	//BodyRelationInnerMultiLength solid_body_inner(wall_boundary); //TBD
 	StdVec<Real> lengths = {1};
 	(*cfg.vdWFluids)[1].lookupValue("attr_length", lengths[0]);
 	BodyRelationInnerMultiLength fluid_body_inner(water_block,lengths);
 	BodyRelationInnerMultiLength solid_body_inner(wall_boundary,lengths);
-	ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
-	BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
+	BodyRelationContactMultiLength water_wall_contact(water_block,{&wall_boundary},lengths);
+	//ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
+	ComplexBodyRelation water_wall_complex(fluid_body_inner, water_wall_contact);
+	//BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});
 	/**
 	 * @brief 	Define all numerical methods which are used in this case.
@@ -125,7 +124,7 @@ int main(int argc, char* argv[])
 
 	DiffusionSourceInitialization<FluidBody, FluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
 	StressTensorHeatSource<FluidBody, FluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
-	vdWAttractionHeatSource<FluidBody, FluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
+	//vdWAttractionHeatSource<FluidBody, FluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
 	/** Corrected strong configuration for diffusion solid body. */
 	solid_dynamics::CorrectConfiguration 			correct_configuration(solid_body_inner);
 	/** Time step size calculation. */
@@ -169,6 +168,8 @@ int main(int argc, char* argv[])
 	BodyStatesRecordingToVtp 		body_states_recording(in_output, sph_system.real_bodies_);
 	RegressionTestEnsembleAveraged<ObservedQuantityRecording<indexScalar, Real>>
 		write_fluid_phi("Temperature", in_output, fluid_observer_contact);
+	RegressionTestEnsembleAveraged<ObservedQuantityRecording<indexScalar, Real>>
+		write_fluid_p("Pressure", in_output, fluid_observer_contact);
 	ObservedQuantityRecording<indexVector, Vecd>
 		write_fluid_velocity("Velocity", in_output, fluid_observer_contact);
 	/** Output the body states for restart simulation. */
@@ -224,7 +225,6 @@ int main(int argc, char* argv[])
 	 * @brief 	Main loop starts here.
 	 */
 
-	exec.doexec(update_water_density_by_summation,1);
 	while (GlobalStaticVariables::physical_time_ < End_Time)
 	{
 		Real integration_time = 0.0;
@@ -238,6 +238,8 @@ int main(int argc, char* argv[])
 			Real Dt_f = exec.doexec(get_water_advection_time_step_size);
 			//Real Dt_a = exec.doexec(get_air_advection_time_step_size);
 			Dt = Dt_f;//SMIN(Dt_f, Dt_a);
+
+			exec.doexec(update_water_density_by_summation,Dt);
 
 			//exec.doexec(update_air_density_by_summation);
 			//exec.doexec(air_transport_correction,Dt);
@@ -266,16 +268,14 @@ int main(int argc, char* argv[])
 				dt = SMIN(dt_f, Dt);
 				exec.doexec(initialize_a_water_step_thermo);
 				exec.doexec(initialize_a_water_step);
-				exec.doexec(water_viscou_acceleration);
+				//exec.doexec(water_viscou_acceleration);
 				exec.doexec(water_pressure_relaxation,dt);
 				//exec.doexec(air_pressure_relaxation,dt);
-
-				exec.doexec(update_water_density_by_summation,dt);
+				//exec.doexec(stress_tensor_heat_water);
 				exec.doexec(water_density_relaxation,dt);
 				//exec.doexec(air_density_relaxation,dt);
 
 				//exec.doexec(thermal_relaxation_complex_wa,dt);
-				exec.doexec(stress_tensor_heat_water);
 				//exec.doexec(vdW_attr_heat_water);
 				if(dt_thermal < dt){
 					int steps = 1+dt/dt_thermal;
@@ -293,13 +293,13 @@ int main(int argc, char* argv[])
 				//	body_states_recording.writeToFile();
 				//	firstiter =0;
 				//}
-				water_block.updateCellLinkedList();
-				water_wall_complex.updateConfiguration();
 				if(denseWriting) {
 					body_states_recording.writeToFile();
 					debugframe--;
 				}
 			}
+			water_block.updateCellLinkedList();
+			water_wall_complex.updateConfiguration();
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
 
 			if (number_of_iterations % screen_output_interval == 0)

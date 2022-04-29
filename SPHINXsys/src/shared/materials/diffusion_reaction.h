@@ -318,7 +318,7 @@ namespace SPH
 			for (size_t k = 0; k < species_diffusion_.size(); ++k)
 				diff_coff_max = SMAX(diff_coff_max, species_diffusion_[k]->getReferenceDiffusivity());
 			Real dimension = Real(Vecd(0).size());
-			return 0.5 * smoothing_length * smoothing_length / diff_coff_max / dimension;
+			return 0.5 * pow(0.6*smoothing_length,2) / diff_coff_max / dimension;
 		};
 
 		/** Initialize a diffusion material. */
