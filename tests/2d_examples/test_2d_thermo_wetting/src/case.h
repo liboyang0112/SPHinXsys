@@ -1,3 +1,6 @@
+#ifndef __CASE
+#define __CASE
+#include <cassert>
 /**
  * @file 	case.h
  * @brief 	Numerical parameters and body defination for 2D two-phase dambreak flow.
@@ -36,10 +39,10 @@ Vec2d bias_direction(cos(alpha), sin(alpha));
 //Real phi_fluid_initial = 273.15;
 //Real phi_gas_initial = 273.15;
 
-Real phi_upper_wall = 0.6;
-Real phi_lower_wall = 0.6;
-Real phi_side_wall = 0.6;
-Real phi_gas_initial = 0.6;
+Real phi_upper_wall = 0.2;
+Real phi_lower_wall = 0.2;
+Real phi_side_wall = 0.2;
+Real phi_gas_initial = 0.2;
 
 /**
  * @brief Material properties of the fluid.
@@ -64,11 +67,11 @@ std::vector<Vecd> createWaterBlockShape()
 {
 	// geometry
 	std::vector<Vecd> water_block_shape;
-	water_block_shape.push_back(Vecd(0.15 * DL, 0.35 * DH));
-	water_block_shape.push_back(Vecd(0.15 * DL, 0.7 * DH));
-	water_block_shape.push_back(Vecd(0.85 * DL, 0.7 * DH));
-	water_block_shape.push_back(Vecd(0.85 * DL, 0.35 * DH));
-	water_block_shape.push_back(Vecd(0.15 * DL, 0.35 * DH));
+	water_block_shape.push_back(Vecd(0.25 * DL, 0.05 * DH));
+	water_block_shape.push_back(Vecd(0.25 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.55 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.55 * DL, 0.05 * DH));
+	water_block_shape.push_back(Vecd(0.25 * DL, 0.05 * DH));
 	return water_block_shape;
 }
 /** create outer wall shape */
@@ -132,16 +135,7 @@ Real vdWFluid::getPressure(Real rho, Real T)
 	if(ratio<0 || ratio!=ratio) ratio=100;
 	//Real ret = rho * k_B * T * ratio;
 	Real ret = rho * k_B * T * ratio - alpha_ * rho * rho;
-	if (ret != ret)
-	{
-		printf("WARNING: Pressure is NAN\n");
-		int halt = 1;
-		exit(0);
-	}
-	// if(ret<-100000){
-	//	ret = -100000;
-	//	//printf("WARNING: Pressure is negative");
-	// }
+	assert (ret == ret);
 	return ret;
 }
 
@@ -276,6 +270,18 @@ public:
 		: RelaxationOfAllDiffusionSpeciesRK2(body_complex_relation){};
 	virtual ~ThermalRelaxationComplex(){};
 };
+class ThermalRelaxationComplexWall
+	: public RelaxationOfAllDiffusionSpeciesRK2<
+		  SolidBody, SolidParticles, Solid,
+		  RelaxationOfAllDiffussionSpeciesComplex<
+			  SolidBody, SolidParticles, Solid, FluidBody, FluidParticles, vdWFluid>,
+		  ComplexBodyRelation>
+{
+public:
+	explicit ThermalRelaxationComplexWall(ComplexBodyRelation &body_complex_relation)
+		: RelaxationOfAllDiffusionSpeciesRK2(body_complex_relation){};
+	virtual ~ThermalRelaxationComplexWall(){};
+};
 
 class ThermalRelaxationComplexWA
 	: public RelaxationOfAllDiffusionSpeciesRK2<
@@ -386,8 +392,8 @@ class WallMaterial
 	: public DiffusionReaction<SolidParticles, Solid>
 {
 public:
-	WallMaterial(Real diffusion_coff)
-		: DiffusionReaction<SolidParticles, Solid>({"Temperature"})
+	WallMaterial(Real diffusion_coff, Real rho0, Real stiffness)
+		: DiffusionReaction<SolidParticles, Solid>({"Temperature"}, rho0, stiffness)
 	{
 		initializeAnDiffusion<DirectionalDiffusion>("Temperature", "Temperature", diffusion_coff, bias_coff, bias_direction);
 		initializeASource("Temperature");
@@ -688,10 +694,10 @@ namespace SPH::fluid_dynamics
 				//Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
 				vel_derivative = vij / (r_ij + 0.01 * this->smoothing_length_);
 				//acceleration_i = -2.0 * (p_star * dW_ij) * e_ij * Vol_k[index_j] / state_i.rho_
-				acceleration_i = -2.0 * dW_ij * e_ij / pow(r_ij / this->smoothing_length_,2)
+				acceleration_i = -5.0 * dW_ij * e_ij
 				+ 2.0 * this->material_->getViscosity(this->rho_n_[index_i], this->temperature_[index_i]) * vel_derivative * Vol_k[index_j] * dW_ij / state_i.rho_;
 				internalEnergyIncrease -= 0.5*dot(acceleration_i, vij);
-				acceleration += acceleration_i + 2 * e_ij * dW_ij_att;
+				acceleration += acceleration_i + 4 * e_ij * dW_ij_att;
 			}
 		}
 		this->temperature_[index_i] += internalEnergyIncrease * 2 / dof / k_B * dt;
@@ -793,10 +799,7 @@ namespace SPH::fluid_dynamics
 				FluidState state_j(rho_in_wall, vel_in_wall, p_in_wall);
 				Vecd vel_star = this->riemann_solver_.getVStar(state_i, state_j, n_k[index_j]);
 				density_change_rate += 2.0 * state_i.rho_ * Vol_k[index_j] * dot(state_i.vel_ - vel_star, e_ij) * dW_ij;
-				if (density_change_rate != density_change_rate)
-				{
-					printf("WARNING: density change rate is NAN");
-				}
+				assert (density_change_rate == density_change_rate);
 			}
 		}
 		this->drho_dt_[index_i] += density_change_rate;
@@ -957,3 +960,4 @@ namespace SPH::fluid_dynamics
 		dvel_dt_prior_[index_i] += acceleration;
 	}
 }
+#endif

@@ -88,16 +88,33 @@ namespace SPH
 				//	register reactive change rate terms without giving variable name
 				//----------------------------------------------------------------------
 				std::get<indexScalar>(this->all_particle_data_).push_back(&diffusion_dt_[m]);
-				diffusion_dt_[m].resize(this->real_particles_bound_, Real(0));
+				diffusion_dt_[m].resize(this->total_real_particles_, Real(0));
 			}
 			for (size_t m = 0; m < species_diffusion_source_index_.size(); ++m)
 			{
 				//----------------------------------------------------------------------
 				//	register reactive change rate terms without giving variable name
 				//----------------------------------------------------------------------
-				diffusion_dt_prior_[m].resize(this->real_particles_bound_, Real(0));
+				diffusion_dt_prior_[m].resize(this->total_real_particles_, Real(0));
 			}
 		};
+/*
+		template<class PType, class MType>
+		virtual size_t initializeAParticle(DiffusionReactionParticles<PType, MType> &fromp, size_t index)
+		{
+			for (itr = species_indexes_map_.begin(); itr != species_indexes_map_.end(); ++itr)
+			{
+				if(empty_buffer)
+					species_n_[i_specie][total_real_particles_] = fromp.species_n_[i_specie][index];
+				else
+					species_n_[i_specie].push_back(fromp.species_n_[i_specie][index]);
+			}
+			BaseParticlesType::initializeAParticle(fromp.pos_, fromp.vol_);
+		};*/
+		virtual void destroyAParticle(size_t index){
+
+		};
+
 		virtual ~DiffusionReactionParticles(){};
 
 		std::map<std::string, size_t> SpeciesIndexMap() { return species_indexes_map_; };

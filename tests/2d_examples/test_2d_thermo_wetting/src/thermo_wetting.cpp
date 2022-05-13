@@ -5,10 +5,15 @@
  * 			understanding SPH method for multi-phase simulation.
  * @author 	Chi Zhang, Xiangyu Hu and Boyang Li
  */
-#include "case.h"
-#include "sphinxsys.h"
 #include "SPHconfig.h"
+#include "phase_transition_solid.h"
+#include "case.h"
 using namespace SPH;
+using vdWSolidPhaseTransitionDynamics=
+	phaseTransitionDynamics<	
+							DiffusionReactionParticles<SolidParticles, Solid>,
+							vdWParticles
+	>;
 /**
  * @brief 	Main program starts here.
  */
@@ -29,6 +34,8 @@ struct SolidPar
 {
 	Real T0;
 	Real diffusion_coff;
+	Real rho0;
+	Real stiffness;
 };
 
 struct execClass{
@@ -65,6 +72,9 @@ int main(int argc, char* argv[])
 	(*cfg.vdWFluids)[1].lookupValue("temperature",water.T0);
 	(*cfg.Solids)[0].lookupValue("temperature",wall.T0);
 	(*cfg.Solids)[0].lookupValue("diffusion_coff",wall.diffusion_coff);
+	(*cfg.Solids)[0].lookupValue("rho_0",wall.rho0);
+	(*cfg.Solids)[0].lookupValue("stiffness",wall.stiffness);
+	(*cfg.Solids)[0].lookupValue("diffusion_coff",wall.diffusion_coff);
 	cfg.Job->lookupValue("particle_spacing_ref",particle_spacing_ref);
 	cfg.Job->lookupValue("doParallel",exec.doParallel);
 	cfg.Job->lookupValue("adaptation",adaptation);
@@ -88,7 +98,9 @@ int main(int argc, char* argv[])
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
 	WallBoundary wall_boundary(sph_system, "Wall", BW, adp);
 	DiffusionReactionParticles<SolidParticles, Solid>
-		wall_particles(wall_boundary, makeShared<WallMaterial>(wall.diffusion_coff));
+		wall_particles(wall_boundary, makeShared<WallMaterial>(wall.diffusion_coff, wall.rho0, wall.stiffness));
+
+	vdWSolidPhaseTransitionDynamics phaseTransition(wall_particles, diffusion_fluid_body_particles, cfg.PhaseTransition);
 
 	ObserverBody temperature_observer(sph_system, "FluidObserver");
 	ObserverParticles temperature_observer_particles(temperature_observer, makeShared<ObserverParticleGenerator>());
@@ -101,8 +113,10 @@ int main(int argc, char* argv[])
 	BodyRelationInnerMultiLength fluid_body_inner(water_block,lengths);
 	BodyRelationInnerMultiLength solid_body_inner(wall_boundary,lengths);
 	BodyRelationContactMultiLength water_wall_contact(water_block,{&wall_boundary},lengths);
+	BodyRelationContactMultiLength wall_water_contact(wall_boundary,{&water_block},lengths);
 	//ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, water_wall_contact);
+	ComplexBodyRelation wall_water_complex(solid_body_inner, wall_water_contact);
 	//BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});
 	/**
@@ -132,6 +146,7 @@ int main(int argc, char* argv[])
 	/** Diffusion process between three diffusion bodies. */
 	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
 	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
+	ThermalRelaxationComplexWall 	thermal_relaxation_complex_wall(wall_water_complex);
 	/**
 	 * @brief 	Algorithms of fluid dynamics.
 	 */
@@ -265,7 +280,7 @@ int main(int argc, char* argv[])
 				}
 				Real dt_f = exec.doexec(get_water_time_step_size);
 				//Real dt_a = exec.doexec(get_air_time_step_size);
-				dt = SMIN(dt_f, Dt);
+				dt = SMIN(dt_f, Dt)/2;
 				exec.doexec(initialize_a_water_step_thermo);
 				exec.doexec(initialize_a_water_step);
 				//exec.doexec(water_viscou_acceleration);
@@ -279,10 +294,15 @@ int main(int argc, char* argv[])
 				//exec.doexec(vdW_attr_heat_water);
 				if(dt_thermal < dt){
 					int steps = 1+dt/dt_thermal;
-					for(int i = 0; i < steps;i++)
+					for(int i = 0; i < steps;i++){
 					exec.doexec(thermal_relaxation_complex_ww,dt/steps);
-				}else
+					exec.doexec(thermal_relaxation_complex_wall,dt/steps);
+
+					}
+				}else{
 					exec.doexec(thermal_relaxation_complex_ww,dt);
+					exec.doexec(thermal_relaxation_complex_wall,dt);
+				}
 				//exec.doexec(thermal_relaxation_complex_aw,dt);
 				//exec.doexec(stress_tensor_heat_air);
 				//exec.doexec(vdW_attr_heat_air);
@@ -298,8 +318,11 @@ int main(int argc, char* argv[])
 					debugframe--;
 				}
 			}
+			exec.doexec(phaseTransition);
 			water_block.updateCellLinkedList();
+			wall_boundary.updateCellLinkedList();
 			water_wall_complex.updateConfiguration();
+			wall_water_complex.updateConfiguration();
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
 
 			if (number_of_iterations % screen_output_interval == 0)

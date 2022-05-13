@@ -25,6 +25,7 @@ public:
   libconfig::Setting* vdWFluids;
   libconfig::Setting* Solids;
   libconfig::Setting* Job;
+  libconfig::Setting* PhaseTransition;
   libconfig::Setting* ExternalForce;
   SPHconfig();
   ~SPHconfig(){};

@@ -154,6 +154,13 @@ SPHconfig::SPHconfig(){
     cerr << "No Job setting in configuration file." << endl;
   }
   try{
+    PhaseTransition = &(root["PhaseTransition"]);
+  }
+  catch(const SettingNotFoundException &nfex)
+  {
+    cerr << "No Job setting in configuration file." << endl;
+  }
+  try{
     ExternalForce = &(root["ExternalForce"]);
   }
   catch(const SettingNotFoundException &nfex)
