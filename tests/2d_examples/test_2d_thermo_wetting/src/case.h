@@ -18,7 +18,9 @@ using namespace SPH;
 /**
  * @brief Basic geometry parameters and numerical setup.
  */
-
+auto getParticleTemperature(BaseParticles *base_particles_){
+	return std::get<indexScalar>(base_particles_->all_particle_data_)[base_particles_->all_variable_maps_[indexScalar]["Temperature"]];
+}
 int dim=2;
 int dof = 2;
 const Real k_B = 1;
@@ -73,6 +75,17 @@ std::vector<Vecd> createWaterBlockShape()
 	water_block_shape.push_back(Vecd(0.55 * DL, 0.05 * DH));
 	water_block_shape.push_back(Vecd(0.25 * DL, 0.05 * DH));
 	return water_block_shape;
+}
+std::vector<Vecd> createPhotonBlockShape()
+{
+	// geometry
+	std::vector<Vecd> photon_block_shape;
+	photon_block_shape.push_back(Vecd(0.35 * DL, 0.55 * DH));
+	photon_block_shape.push_back(Vecd(0.35 * DL, 0.6 * DH));
+	photon_block_shape.push_back(Vecd(0.45 * DL, 0.6 * DH));
+	photon_block_shape.push_back(Vecd(0.45 * DL, 0.55 * DH));
+	photon_block_shape.push_back(Vecd(0.35 * DL, 0.55 * DH));
+	return photon_block_shape;
 }
 /** create outer wall shape */
 std::vector<Vecd> createOuterWallShape(Real BW)
@@ -311,6 +324,18 @@ public:
 		body_shape_.add<MultiPolygonShape>(multi_polygon);
 	}
 };
+class PhotonBlock : public FluidBody
+{
+public:
+	PhotonBlock(SPHSystem &sph_system, const string &body_name, shared_ptr<SPHAdaptation> adp)
+		: FluidBody(sph_system, body_name, adp)
+	{
+		/** Geomtry definition. */
+		MultiPolygon multi_polygon;
+		multi_polygon.addAPolygon(createPhotonBlockShape(), ShapeBooleanOps::add);
+		body_shape_.add<MultiPolygonShape>(multi_polygon);
+	}
+};
 /**
  *@brief 	Air body definition.
  */
@@ -484,8 +509,7 @@ StressTensorHeatSource<BodyType, BaseParticlesType, BaseMaterialType>::StressTen
 	  diffusion_dt_prior_(this->particles_->diffusion_dt_prior_),
 	  source_index_(source_index),
 	  riemann_solver_(*(this->material_), *(this->material_)),
-	  temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
-	  [this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){}
+	  temperature_(*getParticleTemperature(this->particles_)){}
 
 //=================================================================================================//
 
@@ -574,7 +598,7 @@ namespace SPH::fluid_dynamics
 	  	smoothing_length_(this->sph_adaptation_->ReferenceSmoothingLength()),
 		diffusion_dt_prior_(((vdWParticles*)(this->particles_))->diffusion_dt_prior_),
 		source_index_(0),
-		temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
+		temperature_(*getParticleTemperature(this->particles_)){};
 		virtual ~vdWPressureRelaxationInner(){};
 
 	protected:
@@ -721,19 +745,19 @@ namespace SPH::fluid_dynamics
 	public:
 		vdWDensityRelaxation(ComplexBodyRelation &fluid_wall_relation)
 			: BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_wall_relation),
-			  temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]]))
+			  temperature_(*getParticleTemperature(this->particles_))
 		{
 		}
 		vdWDensityRelaxation(BaseBodyRelationInner &fluid_inner_relation,
 							 BaseBodyRelationContact &wall_contact_relation)
 			: BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_inner_relation, wall_contact_relation),
-			  temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]]))
+			  temperature_(*getParticleTemperature(this->particles_))
 		{
 		}
 		vdWDensityRelaxation(ComplexBodyRelation &fluid_complex_relation,
 							 BaseBodyRelationContact &wall_contact_relation)
 			: BaseDensityRelaxationWithWall<BaseDensityRelaxationType>(fluid_complex_relation, wall_contact_relation),
-			  temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)[this->particles_->all_variable_maps_[indexScalar]["Temperature"]]))
+			  temperature_(*getParticleTemperature(this->particles_))
 		{
 		}
 		virtual ~vdWDensityRelaxation(){};
@@ -857,8 +881,7 @@ namespace SPH::fluid_dynamics
 		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
 	public:
 		explicit vdWViscousAccelerationInner(BaseBodyRelationInner &inner_relation):ViscousAccelerationInner(inner_relation),
-		temperature_(*(std::get<indexScalar>(this->particles_->all_particle_data_)
-		[this->particles_->all_variable_maps_[indexScalar]["Temperature"]])){};
+		temperature_(*getParticleTemperature(this->particles_)){};
 		virtual ~vdWViscousAccelerationInner(){};
 	};
 

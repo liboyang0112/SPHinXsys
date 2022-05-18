@@ -26,6 +26,7 @@ public:
   libconfig::Setting* Solids;
   libconfig::Setting* Job;
   libconfig::Setting* PhaseTransition;
+  libconfig::Setting* Photons;
   libconfig::Setting* ExternalForce;
   SPHconfig();
   ~SPHconfig(){};

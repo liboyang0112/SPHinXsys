@@ -54,8 +54,7 @@ operator()(size_t this_index, size_t another_index) const
 
 enum PhaseIndex{lowT=-1,T0=0,highT=1};
 
-template<class Phase1Particles>
-void killParticles(Phase1Particles &p, size_t n_particles_to_kill_, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_){
+void killParticles(BaseParticles &p, size_t n_particles_to_kill_, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_){
 	size_t ntot = p.total_real_particles_;
 	size_t remaining = ntot-n_particles_to_kill_;
 	size_t killing = 0;
@@ -155,7 +154,10 @@ void BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::processLatent
 		if((latent_heat_storage_[index_i]+=dT) >= latent_heat_){
 			Real extra = latent_heat_storage_[index_i]-latent_heat_;
 			latent_heat_storage_[index_i] = 0;
-			temperature_p2_[particleTransfer(index_i)] += pi*extra;
+			size_t targetid = particleTransfer(index_i);
+			temperature_p2_[targetid] = transfer_T_-pi*extra;
+		}else{
+			temperature_[index_i] = transfer_T_;
 		}
 	}
 }

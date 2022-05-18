@@ -146,6 +146,41 @@ SPHconfig::SPHconfig(){
   {
     cerr << "No Solids setting in configuration file." << endl;
   }
+  try
+  {
+    Photons = &(root["Materials"]["Photon"]);
+    int count = Photons->getLength();
+
+    cout << "Photons:"<<endl
+         << setw(10) << left << "name" << "  "
+         << setw(10) << left << "heat cond" << "  "
+         << setw(10) << left << "Temperature"
+         << endl;
+
+    for(int i = 0; i < count; ++i)
+    {
+      const Setting &Photon = (*Photons)[i];
+
+      // Only output the record if all of the expected fields are present.
+      string name;
+      double c0, threshold_kill_;            //initial density
+
+      if(!(Photon.lookupValue("name", name)
+           && Photon.lookupValue("c0", c0)
+           && Photon.lookupValue("threshold_kill_", threshold_kill_)))
+        continue;
+
+      cout << setw(10) << left << name << "  "
+         << setw(10) << left << c0 << "  "
+         << setw(10) << left << threshold_kill_
+         << endl;
+    }
+    cout << endl;
+  }
+  catch(const SettingNotFoundException &nfex)
+  {
+    cerr << "No Photons setting in configuration file." << endl;
+  }
   try{
     Job = &(root["Job"]);
   }
@@ -158,7 +193,7 @@ SPHconfig::SPHconfig(){
   }
   catch(const SettingNotFoundException &nfex)
   {
-    cerr << "No Job setting in configuration file." << endl;
+    cerr << "No PhaseTransition setting in configuration file." << endl;
   }
   try{
     ExternalForce = &(root["ExternalForce"]);

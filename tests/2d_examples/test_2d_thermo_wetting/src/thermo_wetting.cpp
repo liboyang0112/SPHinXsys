@@ -8,7 +8,9 @@
 #include "SPHconfig.h"
 #include "phase_transition_solid.h"
 #include "case.h"
-using namespace SPH;
+#include "photon.h"
+#include "photon_particles.h"
+#include "photon_dynamics.h"
 using vdWSolidPhaseTransitionDynamics=
 	phaseTransitionDynamics<	
 							DiffusionReactionParticles<SolidParticles, Solid>,
@@ -96,10 +98,25 @@ int main(int argc, char* argv[])
 	WaterBlock water_block(sph_system, "WaterBody", adp);
 	vdWParticles diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff));
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
+
 	WallBoundary wall_boundary(sph_system, "Wall", BW, adp);
 	DiffusionReactionParticles<SolidParticles, Solid>
 		wall_particles(wall_boundary, makeShared<WallMaterial>(wall.diffusion_coff, wall.rho0, wall.stiffness));
 
+	auto photon_adp = makeShared<SPHAdaptation>(1.5, 1);
+	PhotonBlock photon_block(sph_system, "PhotonBody", adp);
+	PhotonParticles photon_particles(photon_block, makeShared<Photon>(&(*cfg.Photons)[0]));
+	photon_particles.addAVariableToWrite<indexScalar, Real>("Intensity");
+	PlainWave laser(Vecd(0,-1),10);
+	PhotonInitialization photon_init(photon_block, laser, &wall_boundary);
+	exec.doexec(photon_init,0);
+	Real lightspeed = 0;
+	(*cfg.Photons)[0].lookupValue("c0",lightspeed);
+	Real lightdt = 0.1 * adp->ReferenceSmoothingLength() / lightspeed;
+	
+	BodyRelationContact photon_water_contact(photon_block,{&wall_boundary});
+	PhotonPropagation photon_propagation(photon_water_contact);
+	
 	vdWSolidPhaseTransitionDynamics phaseTransition(wall_particles, diffusion_fluid_body_particles, cfg.PhaseTransition);
 
 	ObserverBody temperature_observer(sph_system, "FluidObserver");
@@ -244,8 +261,31 @@ int main(int argc, char* argv[])
 	{
 		Real integration_time = 0.0;
 		/** Integrate time (loop) until the next output time. */
-		while (integration_time < D_Time)
+		while (1)
 		{
+			time_instance = tick_count::now();
+			exec.doexec(phaseTransition);
+			water_block.updateCellLinkedList();
+			wall_boundary.updateCellLinkedList();
+			water_wall_complex.updateConfiguration();
+			wall_water_complex.updateConfiguration();
+			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
+
+			if (number_of_iterations % screen_output_interval == 0)
+			{
+				std::cout << std::fixed << std::setprecision(9) << "N=" << number_of_iterations << "	Time = "
+					<< GlobalStaticVariables::physical_time_
+					<< "	Dt = " << Dt << "	dt = " << dt << "\n";
+
+				if(!denseWriting) {
+					body_states_recording.writeToFile();
+					debugframe--;
+				}
+				if (number_of_iterations % restart_output_interval == 0)
+					restart_io.writeToFile(number_of_iterations);
+			}
+			number_of_iterations++;
+			if(integration_time >= D_Time) break;
 			/** Acceleration due to viscous force and gravity. */
 			time_instance = tick_count::now();
 			//exec.doexec(initialize_a_air_step);
@@ -289,7 +329,13 @@ int main(int argc, char* argv[])
 				//exec.doexec(stress_tensor_heat_water);
 				exec.doexec(water_density_relaxation,dt);
 				//exec.doexec(air_density_relaxation,dt);
-
+				int steps = 1+dt/lightdt;
+				//printf("light steps: %d\n",steps);
+				for(int i=0; i < steps;i++){
+					exec.doexec(photon_propagation,dt/steps);
+					photon_block.updateCellLinkedList();
+					photon_water_contact.updateConfiguration();
+				}
 				//exec.doexec(thermal_relaxation_complex_wa,dt);
 				//exec.doexec(vdW_attr_heat_water);
 				if(dt_thermal < dt){
@@ -318,29 +364,6 @@ int main(int argc, char* argv[])
 					debugframe--;
 				}
 			}
-			exec.doexec(phaseTransition);
-			water_block.updateCellLinkedList();
-			wall_boundary.updateCellLinkedList();
-			water_wall_complex.updateConfiguration();
-			wall_water_complex.updateConfiguration();
-			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
-
-			if (number_of_iterations % screen_output_interval == 0)
-			{
-				std::cout << std::fixed << std::setprecision(9) << "N=" << number_of_iterations << "	Time = "
-					<< GlobalStaticVariables::physical_time_
-					<< "	Dt = " << Dt << "	dt = " << dt << "\n";
-
-				if(!denseWriting) {
-					body_states_recording.writeToFile();
-					debugframe--;
-				}
-				if (number_of_iterations % restart_output_interval == 0)
-					restart_io.writeToFile(number_of_iterations);
-			}
-			number_of_iterations++;
-			time_instance = tick_count::now();
-			
 
 			/** Update cell linked list and configuration. */
 
