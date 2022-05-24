@@ -10,10 +10,12 @@ public:
 	OperationType<indexVector, Vecd> vector_operation;
 	OperationType<indexMatrix, Matd> matrix_operation;
 	OperationType<indexInteger, int> integer_operation;
+	OperationType<indexPointer, void*> pointer_operation;
 	template<class ParticleType1, class ParticleType2 >
 	DualParticleDataOperation(ParticleType1 &p1, ParticleType2 &p2) : 
 	scalar_operation(p1,p2),vector_operation(p1,p2),
-	matrix_operation(p1,p2),integer_operation(p1,p2){}
+	matrix_operation(p1,p2),integer_operation(p1,p2),
+	pointer_operation(p1,p2){}
 	template <typename... ParticleArgs>
 	void operator()(ParticleArgs... particle_args)
 	{
@@ -21,6 +23,7 @@ public:
 		vector_operation(particle_args...);
 		matrix_operation(particle_args...);
 		integer_operation(particle_args...);
+		pointer_operation(particle_args...);
 	}
 };
 template <int DataTypeIndex, typename VariableType>

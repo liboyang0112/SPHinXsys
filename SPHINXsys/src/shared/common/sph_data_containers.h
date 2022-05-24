@@ -32,12 +32,12 @@ namespace SPH
 
 	/** Generalized particle data type */
 	typedef std::tuple<StdVec<StdLargeVec<Real> *>, StdVec<StdLargeVec<Vecd> *>, StdVec<StdLargeVec<Matd> *>,
-					   StdVec<StdLargeVec<int> *>>
+					   StdVec<StdLargeVec<int> *>, StdVec<StdLargeVec<void*> *>>
 		ParticleData;
 	/** Generalized particle variable to index map */
-	typedef std::array<std::map<std::string, size_t>, 4> ParticleDataMap;
+	typedef std::array<std::map<std::string, size_t>, 5> ParticleDataMap;
 	/** Generalized particle variable list */
-	typedef std::array<StdVec<std::pair<std::string, size_t>>, 4> ParticleVariableList;
+	typedef std::array<StdVec<std::pair<std::string, size_t>>, 5> ParticleVariableList;
 	/** Vector of Material. Note that vector of references are not allowed in c++.*/
 	using MaterialVector = StdVec<BaseMaterial *>;
 	/** Vector of bodies */
@@ -77,6 +77,7 @@ namespace SPH
 		OperationType<indexVector, Vecd> vector_operation;
 		OperationType<indexMatrix, Matd> matrix_operation;
 		OperationType<indexInteger, int> integer_operation;
+		OperationType<indexPointer, void*> pointer_operation;
 
 		template <typename... ParticleArgs>
 		void operator()(ParticleData &particle_data, ParticleArgs... particle_args)
@@ -85,6 +86,7 @@ namespace SPH
 			vector_operation(particle_data, particle_args...);
 			matrix_operation(particle_data, particle_args...);
 			integer_operation(particle_data, particle_args...);
+			pointer_operation(particle_data, particle_args...);
 		}
 	};
 

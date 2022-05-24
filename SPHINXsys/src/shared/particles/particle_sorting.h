@@ -41,12 +41,12 @@ namespace tbb
 		namespace internal
 		{
 
-#ifdef TBB_2021_2_0
-			using tbb::detail::no_assign;
-#else
-			using tbb::internal::no_assign;
-#endif
-
+			class no_assign {
+			public:
+  			  void operator=(const no_assign&) = delete;
+ 			   no_assign(const no_assign&) = default;
+ 			   no_assign() = default;
+			};
 			/** sorting particle */
 			template <typename RandomAccessIterator, typename Compare, typename SwapType>
 			class QuickSortParticleRange : private no_assign

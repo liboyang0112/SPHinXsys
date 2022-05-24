@@ -19,12 +19,14 @@ namespace SPH
 		//----------------------------------------------------------------------
 		registerAVariable<indexScalar, Real>(intensity_n_, "Intensity");
 		registerAVariable<indexScalar, Real>(rho_gradiant_prev_n_, "Rho_Gradiant_Prev_");
+		registerAVariable<indexPointer, void*>(inside_body_n_, "inside_body_n_");
 		//-----------------------------------------------------------------------------------------
 		//		register sortable particle data before building up particle configuration
 		//-----------------------------------------------------------------------------------------
 		registerASortableVariable<indexVector, Vecd>("Position");
 		registerASortableVariable<indexScalar, Real>("Intensity");
-		inside_body_n_.resize(real_particles_bound_, 0);
+		addBufferParticles(total_real_particles_);
+		//inside_body_n_.resize(real_particles_bound_, 0);
 		//sorting particle once
 		//DynamicCast<RealBody>(this, body)->sortParticleWithCellLinkedList();
 	}

@@ -59,6 +59,7 @@ int main(int argc, char* argv[])
 	SolidPar wall;
 	execClass exec;
 	Real adaptation = 1.3;
+	bool writePhoton = 0;
 	(*cfg.vdWFluids)[0].lookupValue("viscosity",air.mu);
 	(*cfg.vdWFluids)[0].lookupValue("rho_0",air.rho0);
 	(*cfg.vdWFluids)[0].lookupValue("a",air.alpha);
@@ -80,6 +81,7 @@ int main(int argc, char* argv[])
 	cfg.Job->lookupValue("particle_spacing_ref",particle_spacing_ref);
 	cfg.Job->lookupValue("doParallel",exec.doParallel);
 	cfg.Job->lookupValue("adaptation",adaptation);
+	cfg.Job->lookupValue("writePhoton",writePhoton);
 	Real BW = particle_spacing_ref * 4 * adaptation;
 	BoundingBox system_domain_bounds(Vec2d(-BW, -BW), Vec2d(DL + BW, DH + BW));
 	SPHSystem sph_system(system_domain_bounds, particle_spacing_ref);
@@ -107,8 +109,8 @@ int main(int argc, char* argv[])
 	PhotonBlock photon_block(sph_system, "PhotonBody", adp);
 	PhotonParticles photon_particles(photon_block, makeShared<Photon>(&(*cfg.Photons)[0]));
 	photon_particles.addAVariableToWrite<indexScalar, Real>("Intensity");
-	PlainWave laser(Vecd(0,-1),10);
-	PhotonInitialization photon_init(photon_block, laser, &wall_boundary);
+	PlainWave laser(Vecd(5./13,-12./13),10);
+	PhotonInitialization photon_init(photon_block, laser, 0);
 	exec.doexec(photon_init,0);
 	Real lightspeed = 0;
 	(*cfg.Photons)[0].lookupValue("c0",lightspeed);
@@ -189,13 +191,13 @@ int main(int argc, char* argv[])
 //		color_gradient(fluid_body_inner, water_wall_contact);
 //	fluid_dynamics::ColorFunctionGradientInterplationInner
 //		color_gradient_interpolation(fluid_body_inner);
-//	fluid_dynamics::SurfaceTensionAccelerationInner
-//		surface_tension_acceleration(fluid_body_inner, tension_force);
+	//fluid_dynamics::SurfaceTensionAccelerationInner
+	//	surface_tension_acceleration(fluid_body_inner, tension_force);
 	/** Wetting effects. */
-//	fluid_dynamics::SurfaceNormWithWall
-//		wetting_norm(water_wall_contact, contact_angle);
+	//fluid_dynamics::SurfaceNormWithWall
+	//	wetting_norm(water_wall_contact, contact_angle);
 	/** Computing vorticity in the flow. */
-	fluid_dynamics::VorticityInner 	compute_vorticity(fluid_body_inner);
+	//fluid_dynamics::VorticityInner 	compute_vorticity(fluid_body_inner);
 	/** Output the body states. */
 	BodyStatesRecordingToVtp 		body_states_recording(in_output, sph_system.real_bodies_);
 	RegressionTestEnsembleAveraged<ObservedQuantityRecording<indexScalar, Real>>
@@ -278,6 +280,7 @@ int main(int argc, char* argv[])
 					<< "	Dt = " << Dt << "	dt = " << dt << "\n";
 
 				if(!denseWriting) {
+					photon_block.setNewlyUpdated();
 					body_states_recording.writeToFile();
 					debugframe--;
 				}
@@ -331,10 +334,23 @@ int main(int argc, char* argv[])
 				//exec.doexec(air_density_relaxation,dt);
 				int steps = 1+dt/lightdt;
 				//printf("light steps: %d\n",steps);
-				for(int i=0; i < steps;i++){
-					exec.doexec(photon_propagation,dt/steps);
-					photon_block.updateCellLinkedList();
-					photon_water_contact.updateConfiguration();
+				if(photon_particles.total_real_particles_){
+					auto t = GlobalStaticVariables::physical_time_;
+					for(int i=0; i < steps;i++){
+						if(!photon_particles.total_real_particles_) break;
+						exec.doexec(photon_propagation,dt/steps);
+						photon_block.updateCellLinkedList();
+						photon_water_contact.updateConfiguration();
+						if(writePhoton) {
+							GlobalStaticVariables::physical_time_ += dt/steps;
+							water_block.setNewlyUpdated();
+							wall_boundary.setNewlyUpdated();
+							body_states_recording.writeToFile();
+						}
+					}
+					if(writePhoton) {
+						GlobalStaticVariables::physical_time_ = t;
+					}
 				}
 				//exec.doexec(thermal_relaxation_complex_wa,dt);
 				//exec.doexec(vdW_attr_heat_water);
@@ -360,6 +376,7 @@ int main(int argc, char* argv[])
 				//	firstiter =0;
 				//}
 				if(denseWriting) {
+					photon_block.setNewlyUpdated();
 					body_states_recording.writeToFile();
 					debugframe--;
 				}

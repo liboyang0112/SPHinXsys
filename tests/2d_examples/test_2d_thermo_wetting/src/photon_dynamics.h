@@ -72,7 +72,7 @@ void PhotonInitialization::Update(size_t index_i, Real dt)
 	((PhotonParticles*)particles_)->intensity_n_[index_i] = laser_field_->getIntensity(pos_n_[index_i]);
 	((PhotonParticles*)particles_)->inside_body_n_[index_i] = contact_body_;
 }
-//DataDelegateSimple<BodyType, ParticlesType, MaterialType>
+
 class PhotonPropagation // Similar to TimeStepInitialization
 	: public InteractionDynamicsWithUpdate, 
 	public DataDelegateContact<SPHBody,PhotonParticles,Photon,SPHBody,BaseParticles,BaseMaterial>
@@ -88,6 +88,7 @@ protected:
 	StdLargeVec<size_t> particle_kill_list_;
 	StdLargeVec<size_t> particle_copy_list_;
 	std::atomic_size_t n_particles_to_kill_;
+	std::atomic_size_t n_particles_;
 //	StdVec<Real> &refractive_index;
 	SPHBody &sph_body_;
 public:
@@ -97,7 +98,8 @@ public:
 	sph_body_(*body_relation_contact_.sph_body_), pos_n_(particles_->pos_n_), vel_n_(particles_->vel_n_),
 	intensity_n_(particles_->intensity_n_),
 	inside_body_n_(particles_->inside_body_n_),
-	rho_gradiant_prev_n_(particles_->rho_gradiant_prev_n_){
+	rho_gradiant_prev_n_(particles_->rho_gradiant_prev_n_),
+	n_particles_(particles_->total_real_particles_){
 		for(auto &body : contact_bodies_){
 			temperatures_.push_back(getParticleTemperature(body->base_particles_));
 		}
@@ -106,8 +108,10 @@ public:
 	};
 	virtual ~PhotonPropagation(){};
 	void updateList(){
+		particles_->total_real_particles_ = n_particles_.load();
 		if(n_particles_to_kill_.load()) killParticles(*particles_, n_particles_to_kill_.load(), particle_kill_list_, particle_copy_list_);
 		particles_->total_real_particles_-=n_particles_to_kill_;
+		n_particles_ = particles_->total_real_particles_;
 		n_particles_to_kill_ = 0;
 	}
 	void exec(Real dt = 0.0){
@@ -123,23 +127,68 @@ protected:
 	virtual void Update(size_t index_i, Real dt = 0.0) override;
 };
 
+void reflectParticle(size_t reflected_index_, size_t index_i, BaseParticles &particles_, Vecd surfacenorm){
+	particles_.copyFromAnotherParticle(reflected_index_,index_i);
+	particles_.vel_n_[reflected_index_] = particles_.vel_n_[index_i]-surfacenorm*2.*dot(surfacenorm,particles_.vel_n_[index_i])/pow(surfacenorm.norm(),2);
+}
+
 void PhotonPropagation::Interaction(size_t index_i, Real dt){
 	for (size_t k = 0; k < contact_configuration_.size(); ++k)
 	{
+		Neighborhood &inside_neighbors = (*contact_configuration_[k])[index_i];
+		Real densum = 0;
+		Vecd rhograd(0);
+		for (size_t n = 0; n != inside_neighbors.current_size_; ++n){
+			size_t index_j = inside_neighbors.j_[n];
+			densum+= inside_neighbors.W_ij_[n];
+			rhograd += inside_neighbors.dW_ij_[n]*inside_neighbors.e_ij_[n];
+		}
+		Real gradnorm = dot(rhograd,vel_n_[index_i])/contact_bodies_[k]->base_particles_->base_material_->ReferenceDensity();
 		if(contact_bodies_[k] == inside_body_n_[index_i]){
-			Neighborhood &inside_neighbors = (*contact_configuration_[k])[index_i];
-			Real densum = 0;
-			for (size_t n = 0; n != inside_neighbors.current_size_; ++n){
-				size_t index_j = inside_neighbors.j_[n];
-				densum+= inside_neighbors.W_ij_[n];
-			}
 			Real heat_absorbed = intensity_n_[index_i]*densum*material_->getLightSpeed()*dt/material_->getAttenuation();
 			for (size_t n = 0; n != inside_neighbors.current_size_; ++n){
 				size_t index_j = inside_neighbors.j_[n];
 				(*temperatures_[k])[index_j]+= inside_neighbors.W_ij_[n]*heat_absorbed/densum;
 			}
-			if((intensity_n_[index_i]-=heat_absorbed)<material_->getKillThreshold()){
+			if((intensity_n_[index_i]-=heat_absorbed)<=material_->getKillThreshold()){
 				particle_kill_list_[n_particles_to_kill_++] = index_i;
+				return; //the particle is killed already, nothing to do next
+			}
+			//check if the photon is leaving the body
+			if(-gradnorm > material_->getGradThresholdReflect()){
+				if(gradnorm>rho_gradiant_prev_n_[index_i]){
+					if(material_->getReflectivity() * intensity_n_[index_i] > material_->getKillThreshold()){
+						Real reflected_index_ = n_particles_++;
+						reflectParticle(reflected_index_, index_i, *particles_, rhograd);
+						intensity_n_[reflected_index_] = material_->getReflectivity()*intensity_n_[index_i];
+					}else{
+						intensity_n_[index_i]*=1-material_->getReflectivity();
+					}
+					inside_body_n_[index_i] = 0;
+				}else{
+					rho_gradiant_prev_n_[index_i] = gradnorm;
+				}
+			}
+		}else {
+			//check if the photon is entering the body
+			if(gradnorm!=0){
+				int halt = 1;
+			}
+			if(gradnorm > material_->getGradThresholdReflect()){
+				if(gradnorm<rho_gradiant_prev_n_[index_i]-1e-5){
+					Real reflectivity = particles_->vel_n_[index_i][1]<0.0?0.9:0;
+					if(reflectivity * intensity_n_[index_i] > material_->getKillThreshold()){
+						Real reflected_index_ = n_particles_++;
+						reflectParticle(reflected_index_, index_i, *particles_, rhograd);
+						rho_gradiant_prev_n_[reflected_index_] = 0;
+						intensity_n_[reflected_index_] = reflectivity*intensity_n_[index_i];
+					}else{
+						intensity_n_[index_i]*=1-reflectivity;
+					}
+					inside_body_n_[index_i] = contact_bodies_[k];
+				}else{
+					rho_gradiant_prev_n_[index_i] = gradnorm;
+				}
 			}
 		}
 	}

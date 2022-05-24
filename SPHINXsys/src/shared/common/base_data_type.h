@@ -317,6 +317,7 @@ namespace SPH {
 	const int indexVector = 1;
 	const int indexMatrix = 2;
 	const int indexInteger = 3;
+	const int indexPointer = 4;
 
 	//verbal boolean for positive and negative axis directions
 	const int xAxis = 0;

@@ -69,22 +69,22 @@ std::vector<Vecd> createWaterBlockShape()
 {
 	// geometry
 	std::vector<Vecd> water_block_shape;
-	water_block_shape.push_back(Vecd(0.25 * DL, 0.05 * DH));
-	water_block_shape.push_back(Vecd(0.25 * DL, 0.2 * DH));
-	water_block_shape.push_back(Vecd(0.55 * DL, 0.2 * DH));
-	water_block_shape.push_back(Vecd(0.55 * DL, 0.05 * DH));
-	water_block_shape.push_back(Vecd(0.25 * DL, 0.05 * DH));
+	water_block_shape.push_back(Vecd(0.01 * DL, 0.01 * DH));
+	water_block_shape.push_back(Vecd(0.01 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.99 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.99 * DL, 0.01 * DH));
+	water_block_shape.push_back(Vecd(0.01 * DL, 0.01 * DH));
 	return water_block_shape;
 }
 std::vector<Vecd> createPhotonBlockShape()
 {
 	// geometry
 	std::vector<Vecd> photon_block_shape;
-	photon_block_shape.push_back(Vecd(0.35 * DL, 0.55 * DH));
+	photon_block_shape.push_back(Vecd(0.35 * DL, 0.56 * DH));
 	photon_block_shape.push_back(Vecd(0.35 * DL, 0.6 * DH));
 	photon_block_shape.push_back(Vecd(0.45 * DL, 0.6 * DH));
-	photon_block_shape.push_back(Vecd(0.45 * DL, 0.55 * DH));
-	photon_block_shape.push_back(Vecd(0.35 * DL, 0.55 * DH));
+	photon_block_shape.push_back(Vecd(0.45 * DL, 0.56 * DH));
+	photon_block_shape.push_back(Vecd(0.35 * DL, 0.56 * DH));
 	return photon_block_shape;
 }
 /** create outer wall shape */
@@ -683,6 +683,7 @@ namespace SPH::fluid_dynamics
 		FluidState state_i_att(this->rho_n_[index_i], this->vel_n_[index_i], pi_att);
 		Vecd dvel_dt_prior_i = computeNonConservativeAcceleration(index_i);
 		Vecd acceleration(0.0);
+		Vecd acceleration_surface(0);
 		Vecd acceleration_i;
 		Real internalEnergyIncrease = 0;
 		Vecd vel_derivative(0);
@@ -696,6 +697,8 @@ namespace SPH::fluid_dynamics
 			//Real rho_in_wall = 1.6;// + dp / this->material_->getSoundSpeed(state_i.p_ + 0.5 * dp, state_i.rho_); // sound speed = dp/drho
 			//Real pj_att = ((vdWFluid*)this->material_)->getAlpha()*rho_in_wall*rho_in_wall;
 			Real p_in_wall = 1.6;
+			Vecd rhograd(0);
+			Real densum = 0;
 			for (size_t n = 0; n != wall_neighborhood.current_size_; ++n)
 			{
 				size_t index_j = wall_neighborhood.j_[n];
@@ -704,6 +707,8 @@ namespace SPH::fluid_dynamics
 				//Real dW_ij_att = 0;
 				Real dW_ij_att = wall_neighborhood.dW_ij_n_[0][n];
 				Real r_ij = wall_neighborhood.r_ij_[n];
+				densum += wall_neighborhood.W_ij_[n];
+				rhograd += dW_ij*e_ij;
 				Real face_wall_external_acceleration = dot((dvel_dt_prior_i - dvel_dt_ave_k[index_j]), -e_ij);
 				Vecd vel_in_wall = 2.0 * vel_ave_k[index_j] - state_i.vel_;
 				Vecd vij = state_i.vel_ - vel_in_wall;
@@ -718,14 +723,23 @@ namespace SPH::fluid_dynamics
 				//Real p_star_att = this->riemann_solver_.getPStar(state_i_att, state_j_att, e_ij);
 				vel_derivative = vij / (r_ij + 0.01 * this->smoothing_length_);
 				//acceleration_i = -2.0 * (p_star * dW_ij) * e_ij * Vol_k[index_j] / state_i.rho_
-				acceleration_i = -5.0 * dW_ij * e_ij
-				+ 2.0 * this->material_->getViscosity(this->rho_n_[index_i], this->temperature_[index_i]) * vel_derivative * Vol_k[index_j] * dW_ij / state_i.rho_;
+				acceleration_i = //-5.0 * dW_ij * e_ij+ 
+				2.0 * this->material_->getViscosity(this->rho_n_[index_i], this->temperature_[index_i]) * vel_derivative * Vol_k[index_j] * dW_ij / state_i.rho_;
 				internalEnergyIncrease -= 0.5*dot(acceleration_i, vij);
-				acceleration += acceleration_i + 4 * e_ij * dW_ij_att;
+				acceleration += acceleration_i;
+				acceleration_surface += 0.5*e_ij * dW_ij;
+			}
+			if(densum >= 0.2*FluidWallData::contact_material_[k]->ReferenceDensity()){
+				if(dot(rhograd,state_i.vel_)>0){
+					state_i.vel_ -= rhograd*2.*dot(rhograd,state_i.vel_)/pow(rhograd.norm(),2);
+					acceleration -= rhograd*2.*dot(rhograd,acceleration)/pow(rhograd.norm(),2);
+					acceleration_surface = Vecd(0);
+					this->dvel_dt_[index_i] = 0;
+				}
 			}
 		}
 		this->temperature_[index_i] += internalEnergyIncrease * 2 / dof / k_B * dt;
-		this->dvel_dt_[index_i] += acceleration;
+		this->dvel_dt_[index_i] += acceleration + acceleration_surface;
 	}
 	//=================================================================================================//
 	template <class BasePressureRelaxationType>
