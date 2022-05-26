@@ -64,6 +64,9 @@ namespace SPH
 
 		virtual Real getReferenceDiffusivity() = 0;
 		virtual Real getInterParticleDiffusionCoff(size_t particle_i, size_t particle_j, Vecd &direction_from_j_to_i) = 0;
+		virtual Real getContactDiffusionCoff(BaseDiffusion *contact_diffusion, Vecd &direction_from_j_to_i){
+			getInterParticleDiffusionCoff(0,0,direction_from_j_to_i);
+		};
 	};
 
 	/**
@@ -90,6 +93,7 @@ namespace SPH
 		{
 			return diff_cf_;
 		};
+		virtual Real getContactDiffusionCoff(BaseDiffusion *contact_diffusion, Vecd &direction_from_j_to_i) = 0;
 	};
 
 	/**
@@ -128,6 +132,15 @@ namespace SPH
 			Vecd grad_ij = transformed_diffusivity_ * inter_particle_direction;
 			return 1.0 / SMAX(grad_ij.scalarNormSqr(),1e-10);
 		};
+		virtual Matd getDiffusivity(){return transformed_diffusivity_;}
+		virtual Real getContactDiffusionCoff(BaseDiffusion *contact_diffusion, Vecd &inter_particle_direction){
+			
+			auto mat = ((DirectionalDiffusion*)contact_diffusion)->getDiffusivity();
+			Vecd grad_ij = transformed_diffusivity_ * inter_particle_direction;
+			Vecd grad_ij1 = mat * inter_particle_direction;
+			return 2.0 / SMAX(grad_ij.scalarNormSqr()+grad_ij1.scalarNormSqr(),1e-10);
+		}
+
 	};
 
 	/**

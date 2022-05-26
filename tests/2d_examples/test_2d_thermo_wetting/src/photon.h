@@ -34,10 +34,10 @@ namespace SPH
 
 		virtual Real getLightSpeed(Real n=1) {return n*c0; };
 		virtual Real getWaveLength(Real n=1) {return lambda_/n;};
-		virtual Real getReflectivity(Real par1=0, Real par2=0) { return 0.9; };
-		virtual Real getAttenuation(Real par1=0, Real par2=0) { return 0.3; };
-		virtual Real getKillThreshold(Real par1=0, Real par2=0) { return 1e-5; };
-		virtual Real getGradThresholdReflect(Real par1=0, Real par2=0) { return 0.01; };
+		virtual Real getReflectivity(Real par1=0, Real par2=0) { return 0.0; };
+		virtual Real getAttenuation(Real par1=0, Real par2=0) { return 0.3/pow(par1,2); };
+		virtual Real getKillThreshold(Real par1=0, Real par2=0) { return 1e-3; };
+		virtual Real getGradThresholdReflect(Real par1=0, Real par2=0) { return 0.001; };
 		virtual Photon *ThisObjectPtr() override { return this; };
 	};
 }

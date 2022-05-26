@@ -44,33 +44,45 @@ public:
 	}
 };
 class PhotonInitialization // Similar to TimeStepInitialization
-	: public ParticleDynamicsSimple, public DataDelegateSimple<SPHBody,BaseParticles,BaseMaterial>
+	: public ParticleDynamicsSimple, public DataDelegateSimple<SPHBody,PhotonParticles,BaseMaterial>
 {
 
 public:
 	PhotonInitialization(SPHBody &sph_body, LaserField &laser_field, SPHBody *contact_body = 0);
 	virtual ~PhotonInitialization(){};
+	virtual void exec(Real dt = 0.0) override{
+		particles_->total_real_particles_ = total_photons;
+		ParticleDynamicsSimple::exec(dt);
+	};
 
 protected:
 	StdLargeVec<Vecd> &pos_n_;
+	StdLargeVec<Vecd> pos_backup_;
 	StdLargeVec<Vecd> &vel_n_;
 	LaserField *laser_field_;
 	SPHBody *contact_body_;
+	size_t total_photons;
 	virtual void setupDynamics(Real dt = 0.0) override {particles_->total_ghost_particles_ = 0;};
 	virtual void Update(size_t index_i, Real dt = 0.0) override;
 };
 
 PhotonInitialization::PhotonInitialization(SPHBody &sph_body, LaserField &laser_field, SPHBody *contact_body)
-	: ParticleDynamicsSimple(sph_body), DataDelegateSimple<SPHBody,BaseParticles,BaseMaterial>(sph_body),
+	: ParticleDynamicsSimple(sph_body), DataDelegateSimple<SPHBody,PhotonParticles,BaseMaterial>(sph_body),
 	  pos_n_(particles_->pos_n_), vel_n_(particles_->vel_n_),
 	  laser_field_(&laser_field),
-	  contact_body_(contact_body) {}
+	  contact_body_(contact_body),
+	  total_photons(particles_->total_real_particles_),
+	  pos_backup_(particles_->pos_n_) {
+
+	  }
 
 void PhotonInitialization::Update(size_t index_i, Real dt)
 {
+	pos_n_[index_i] = pos_backup_[index_i];
 	vel_n_[index_i] = laser_field_->getDirection(pos_n_[index_i]);
-	((PhotonParticles*)particles_)->intensity_n_[index_i] = laser_field_->getIntensity(pos_n_[index_i]);
-	((PhotonParticles*)particles_)->inside_body_n_[index_i] = contact_body_;
+	particles_->intensity_n_[index_i] = laser_field_->getIntensity(pos_n_[index_i]);
+	particles_->inside_body_n_[index_i] = contact_body_;
+	particles_->rho_gradiant_prev_n_[index_i] = 0;
 }
 
 class PhotonPropagation // Similar to TimeStepInitialization
@@ -84,6 +96,7 @@ protected:
 	StdLargeVec<Real> &intensity_n_;
 	StdLargeVec<void*> &inside_body_n_;
 	StdLargeVec<Real> &rho_gradiant_prev_n_;
+	StdLargeVec<Real> &rho_gradiant_prev_max_n_;
 	StdVec<StdLargeVec<Real>*> temperatures_;
 	StdLargeVec<size_t> particle_kill_list_;
 	StdLargeVec<size_t> particle_copy_list_;
@@ -99,6 +112,7 @@ public:
 	intensity_n_(particles_->intensity_n_),
 	inside_body_n_(particles_->inside_body_n_),
 	rho_gradiant_prev_n_(particles_->rho_gradiant_prev_n_),
+	rho_gradiant_prev_max_n_(particles_->rho_gradiant_prev_max_n_),
 	n_particles_(particles_->total_real_particles_){
 		for(auto &body : contact_bodies_){
 			temperatures_.push_back(getParticleTemperature(body->base_particles_));
@@ -115,10 +129,12 @@ public:
 		n_particles_to_kill_ = 0;
 	}
 	void exec(Real dt = 0.0){
+		n_particles_ = particles_->total_real_particles_;
 		InteractionDynamicsWithUpdate::exec(dt);
 		updateList();
 	}
 	void parallel_exec(Real dt = 0.0){
+		n_particles_ = particles_->total_real_particles_;
 		InteractionDynamicsWithUpdate::parallel_exec(dt);
 		updateList();
 	}
@@ -145,7 +161,7 @@ void PhotonPropagation::Interaction(size_t index_i, Real dt){
 		}
 		Real gradnorm = dot(rhograd,vel_n_[index_i])/contact_bodies_[k]->base_particles_->base_material_->ReferenceDensity();
 		if(contact_bodies_[k] == inside_body_n_[index_i]){
-			Real heat_absorbed = intensity_n_[index_i]*densum*material_->getLightSpeed()*dt/material_->getAttenuation();
+			Real heat_absorbed = intensity_n_[index_i]*material_->getLightSpeed()*dt/material_->getAttenuation(densum);
 			for (size_t n = 0; n != inside_neighbors.current_size_; ++n){
 				size_t index_j = inside_neighbors.j_[n];
 				(*temperatures_[k])[index_j]+= inside_neighbors.W_ij_[n]*heat_absorbed/densum;
@@ -161,10 +177,11 @@ void PhotonPropagation::Interaction(size_t index_i, Real dt){
 						Real reflected_index_ = n_particles_++;
 						reflectParticle(reflected_index_, index_i, *particles_, rhograd);
 						intensity_n_[reflected_index_] = material_->getReflectivity()*intensity_n_[index_i];
-					}else{
-						intensity_n_[index_i]*=1-material_->getReflectivity();
 					}
+					intensity_n_[index_i]*=1-material_->getReflectivity();
 					inside_body_n_[index_i] = 0;
+					gradnorm = 0;
+					Interaction(index_i, dt); //check if entering another body
 				}else{
 					rho_gradiant_prev_n_[index_i] = gradnorm;
 				}
@@ -175,19 +192,20 @@ void PhotonPropagation::Interaction(size_t index_i, Real dt){
 				int halt = 1;
 			}
 			if(gradnorm > material_->getGradThresholdReflect()){
-				if(gradnorm<rho_gradiant_prev_n_[index_i]-1e-5){
-					Real reflectivity = particles_->vel_n_[index_i][1]<0.0?0.9:0;
-					if(reflectivity * intensity_n_[index_i] > material_->getKillThreshold()){
-						Real reflected_index_ = n_particles_++;
-						reflectParticle(reflected_index_, index_i, *particles_, rhograd);
-						rho_gradiant_prev_n_[reflected_index_] = 0;
-						intensity_n_[reflected_index_] = reflectivity*intensity_n_[index_i];
-					}else{
+				if(gradnorm<rho_gradiant_prev_max_n_[index_i]-1e-5){
+					if(inside_body_n_[index_i] ==0){
+						Real reflectivity = particles_->vel_n_[index_i][1]<0.0?material_->getReflectivity():0;
+						if(reflectivity * intensity_n_[index_i] > material_->getKillThreshold()){
+							Real reflected_index_ = n_particles_++;
+							reflectParticle(reflected_index_, index_i, *particles_, rhograd);
+							rho_gradiant_prev_max_n_[reflected_index_] = 0;
+							intensity_n_[reflected_index_] = reflectivity*intensity_n_[index_i];
+						}
 						intensity_n_[index_i]*=1-reflectivity;
+						inside_body_n_[index_i] = contact_bodies_[k];
 					}
-					inside_body_n_[index_i] = contact_bodies_[k];
 				}else{
-					rho_gradiant_prev_n_[index_i] = gradnorm;
+					rho_gradiant_prev_max_n_[index_i] = gradnorm;
 				}
 			}
 		}

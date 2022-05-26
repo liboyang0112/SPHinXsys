@@ -55,6 +55,7 @@ namespace SPH
 		StdLargeVec<Real> intensity_n_;
 		StdLargeVec<void*> inside_body_n_;  // The pointer to the material particles containing the photon.
 		StdLargeVec<Real> rho_gradiant_prev_n_; // used for reflection determination: reflect when rho_gradiant reaches max.
+		StdLargeVec<Real> rho_gradiant_prev_max_n_; // used for reflection determination: reflect when rho_gradiant reaches max.
 
 		virtual PhotonParticles *ThisObjectPtr() override { return this; };
 	};

@@ -151,7 +151,7 @@ namespace SPH
 	{
 		RelaxationOfAllDiffussionSpeciesInner<BodyType, BaseParticlesType, BaseMaterialType>::Interaction(index_i, dt);
 		DiffusionReactionParticles<BaseParticlesType, BaseMaterialType> *particles = this->particles_;
-
+		DiffusionReaction<ContactBaseParticlesType, ContactBaseMaterialType> *contactdiffusion;
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)
 		{
 			StdLargeVec<Real> &Vol_k = *(contact_Vol_[k]);
@@ -167,7 +167,15 @@ namespace SPH
 
 				const Vecd &grad_ij = particles->getKernelGradient(index_i, index_j, dW_ij_, e_ij);
 				Real area_ij = 2.0 * Vol_k[index_j] * dot(grad_ij, e_ij) / r_ij_;
-				getDiffusionChangeRateContact(index_i, index_j, e_ij, area_ij, species_n_k);
+
+				for (size_t m = 0; m < species_diffusion_.size(); ++m)
+				{
+					contactdiffusion = (DiffusionReaction<ContactBaseParticlesType, ContactBaseMaterialType> *)this->contact_material_[k];
+					Real diff_coff_ij = species_diffusion_[m]->getContactDiffusionCoff((BaseDiffusion*)contactdiffusion->SpeciesDiffusion()[m], e_ij);
+					size_t l = species_diffusion_[m]->gradient_species_index_;
+					Real phi_ij = species_n_[l][index_i] - species_n_k[l][index_j];
+					diffusion_dt_[m][index_i] += diff_coff_ij * phi_ij * area_ij;
+				}
 			}
 		}
 	}

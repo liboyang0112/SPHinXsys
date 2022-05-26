@@ -109,15 +109,15 @@ int main(int argc, char* argv[])
 	PhotonBlock photon_block(sph_system, "PhotonBody", adp);
 	PhotonParticles photon_particles(photon_block, makeShared<Photon>(&(*cfg.Photons)[0]));
 	photon_particles.addAVariableToWrite<indexScalar, Real>("Intensity");
-	PlainWave laser(Vecd(5./13,-12./13),10);
+	PlainWave laser(Vecd(0,-1),10);
 	PhotonInitialization photon_init(photon_block, laser, 0);
 	exec.doexec(photon_init,0);
 	Real lightspeed = 0;
 	(*cfg.Photons)[0].lookupValue("c0",lightspeed);
 	Real lightdt = 0.1 * adp->ReferenceSmoothingLength() / lightspeed;
 	
-	BodyRelationContact photon_water_contact(photon_block,{&wall_boundary});
-	PhotonPropagation photon_propagation(photon_water_contact);
+	BodyRelationContact photon_contact(photon_block,{&wall_boundary, &water_block});
+	PhotonPropagation photon_propagation(photon_contact);
 	
 	vdWSolidPhaseTransitionDynamics phaseTransition(wall_particles, diffusion_fluid_body_particles, cfg.PhaseTransition);
 
@@ -254,6 +254,7 @@ int main(int argc, char* argv[])
 	tick_count time_instance;
 	bool firstiter = 1;
 	int debugframe = 99999;
+	Real gent = 20;
 	cfg.Job->lookupValue("debugFrame",debugframe);
 	/**
 	 * @brief 	Main loop starts here.
@@ -338,9 +339,9 @@ int main(int argc, char* argv[])
 					auto t = GlobalStaticVariables::physical_time_;
 					for(int i=0; i < steps;i++){
 						if(!photon_particles.total_real_particles_) break;
-						exec.doexec(photon_propagation,dt/steps);
 						photon_block.updateCellLinkedList();
-						photon_water_contact.updateConfiguration();
+						photon_contact.updateConfiguration();
+						exec.doexec(photon_propagation,dt/steps);
 						if(writePhoton) {
 							GlobalStaticVariables::physical_time_ += dt/steps;
 							water_block.setNewlyUpdated();
@@ -350,6 +351,11 @@ int main(int argc, char* argv[])
 					}
 					if(writePhoton) {
 						GlobalStaticVariables::physical_time_ = t;
+					}
+				}else{
+					if(GlobalStaticVariables::physical_time_-gent>0){
+						exec.doexec(photon_init);
+						gent+=20;
 					}
 				}
 				//exec.doexec(thermal_relaxation_complex_wa,dt);

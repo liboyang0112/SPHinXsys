@@ -19,6 +19,7 @@ namespace SPH
 		//----------------------------------------------------------------------
 		registerAVariable<indexScalar, Real>(intensity_n_, "Intensity");
 		registerAVariable<indexScalar, Real>(rho_gradiant_prev_n_, "Rho_Gradiant_Prev_");
+		registerAVariable<indexScalar, Real>(rho_gradiant_prev_max_n_, "Rho_Gradiant_Prev_Max_");
 		registerAVariable<indexPointer, void*>(inside_body_n_, "inside_body_n_");
 		//-----------------------------------------------------------------------------------------
 		//		register sortable particle data before building up particle configuration
