@@ -238,7 +238,7 @@ namespace SPH
 	public:
 		explicit DataDelegateContact(BaseBodyRelationContact &body_contact_relation);
 		virtual ~DataDelegateContact(){};
-
+		virtual void AddContactRelation(BaseBodyRelationContact &body_contact_relation);
 	protected:
 		StdVec<ContactBodyType *> contact_bodies_;
 		StdVec<ContactParticlesType *> contact_particles_;
