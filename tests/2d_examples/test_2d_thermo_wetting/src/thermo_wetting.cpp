@@ -13,7 +13,7 @@
 #include "photon_dynamics.h"
 using vdWSolidPhaseTransitionDynamics=
 	phaseTransitionDynamics<	
-							DiffusionReactionParticles<SolidParticles, Solid>,
+							WallParticles,
 							vdWParticles
 	>;
 /**
@@ -65,7 +65,8 @@ int main(int argc, char* argv[])
 	(*cfg.vdWFluids)[0].lookupValue("a",air.alpha);
 	(*cfg.vdWFluids)[0].lookupValue("rho_m",air.rho_m);
 	(*cfg.vdWFluids)[0].lookupValue("gamma",air.gamma);
-	(*cfg.vdWFluids)[1].lookupValue("temperature",air.T0);
+	(*cfg.vdWFluids)[0].lookupValue("temperature",air.T0);
+	(*cfg.vdWFluids)[0].lookupValue("diffusion_coff",air.diffusion_coff);
 	(*cfg.vdWFluids)[1].lookupValue("viscosity",water.mu);
 	(*cfg.vdWFluids)[1].lookupValue("rho_0",water.rho0);
 	(*cfg.vdWFluids)[1].lookupValue("a",water.alpha);
@@ -77,7 +78,6 @@ int main(int argc, char* argv[])
 	(*cfg.Solids)[0].lookupValue("diffusion_coff",wall.diffusion_coff);
 	(*cfg.Solids)[0].lookupValue("rho_0",wall.rho0);
 	(*cfg.Solids)[0].lookupValue("stiffness",wall.stiffness);
-	(*cfg.Solids)[0].lookupValue("diffusion_coff",wall.diffusion_coff);
 	cfg.Job->lookupValue("particle_spacing_ref",particle_spacing_ref);
 	cfg.Job->lookupValue("doParallel",exec.doParallel);
 	cfg.Job->lookupValue("adaptation",adaptation);
@@ -101,17 +101,24 @@ int main(int argc, char* argv[])
 	vdWParticles diffusion_fluid_body_particles(water_block, makeShared<FluidMaterial>(water.rho0, water.rho_m, water.gamma, water.alpha, water.molmass, water.mu, water.diffusion_coff));
 	diffusion_fluid_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
 
+	AirBlock air_block(sph_system, "AirBody", adp);
+	vdWParticles diffusion_air_body_particles(air_block, makeShared<FluidMaterial>(air.rho0, air.rho_m, air.gamma, air.alpha, air.molmass, air.mu, air.diffusion_coff));
+	diffusion_air_body_particles.addAVariableToWrite<indexScalar, Real>("Density");
+
 	WallBoundary wall_boundary(sph_system, "Wall", BW, adp);
-	DiffusionReactionParticles<SolidParticles, Solid>
+	WallParticles
 		wall_particles(wall_boundary, makeShared<WallMaterial>(wall.diffusion_coff, wall.rho0, wall.stiffness));
 
 	auto photon_adp = makeShared<SPHAdaptation>(1.5, 1);
 	PhotonBlock photon_block(sph_system, "PhotonBody", adp);
 	PhotonParticles photon_particles(photon_block, makeShared<Photon>(&(*cfg.Photons)[0]));
 	photon_particles.addAVariableToWrite<indexScalar, Real>("Intensity");
-	PlainWave laser(Vecd(0,-1),10);
+	Real laserIntensity = 0;
+	(*cfg.Photons)[0].lookupValue("Intensity",laserIntensity);
+	PlainWave laser(Vecd(0,-1),laserIntensity);
 	PhotonInitialization photon_init(photon_block, laser, 0);
-	exec.doexec(photon_init,0);
+	Real photonExist = 0;
+	//exec.doexec(photon_init,0);
 	Real lightspeed = 0;
 	(*cfg.Photons)[0].lookupValue("c0",lightspeed);
 	Real lightdt = 0.1 * adp->ReferenceSmoothingLength() / lightspeed;
@@ -129,15 +136,23 @@ int main(int argc, char* argv[])
 	/** topology */
 	StdVec<Real> lengths = {1};
 	(*cfg.vdWFluids)[1].lookupValue("attr_length", lengths[0]);
+	BodyRelationInnerMultiLength air_body_inner(air_block,lengths);
 	BodyRelationInnerMultiLength fluid_body_inner(water_block,lengths);
-	BodyRelationInnerMultiLength solid_body_inner(wall_boundary,lengths);
+	BodyRelationInner solid_body_inner(wall_boundary);
+	BodyRelationContact water_air_contact(water_block,{&air_block});
+	BodyRelationContact air_water_contact(air_block,{&water_block});
 	BodyRelationContactMultiLength water_wall_contact(water_block,{&wall_boundary},lengths);
-	BodyRelationContactMultiLength wall_water_contact(wall_boundary,{&water_block},lengths);
+	BodyRelationContactMultiLength air_wall_contact(air_block,{&wall_boundary},lengths);
+	BodyRelationContact wall_contact(wall_boundary,{&water_block,&air_block});
 	//ComplexBodyRelation water_wall_complex(fluid_body_inner, { &wall_boundary });
+	ComplexBodyRelation water_air_complex(fluid_body_inner, water_air_contact);
 	ComplexBodyRelation water_wall_complex(fluid_body_inner, water_wall_contact);
-	ComplexBodyRelation wall_water_complex(solid_body_inner, wall_water_contact);
+	ComplexBodyRelation air_water_complex(air_body_inner, air_water_contact);
+	ComplexBodyRelation air_wall_complex(air_body_inner, air_wall_contact);
+	ComplexBodyRelation wall_complex(solid_body_inner, wall_contact);
 	//BaseBodyRelationContact &water_wall_contact = water_wall_complex.contact_relation_;
 	BodyRelationContact fluid_observer_contact(temperature_observer, {&water_block});
+
 	/**
 	 * @brief 	Define all numerical methods which are used in this case.
 	 */
@@ -152,11 +167,14 @@ int main(int argc, char* argv[])
 	 /** Initialize particle acceleration. */
 	ThermosolidBodyInitialCondition thermosolid_condition(wall_boundary, wall.T0, BW);
 	ThermofluidBodyInitialCondition thermofluid_initial_condition(water_block, water.T0);
+	ThermofluidBodyInitialCondition thermoair_initial_condition(air_block, air.T0);
 
 	TimeStepInitialization		initialize_a_water_step(water_block, gravity);
+	TimeStepInitialization          initialize_a_air_step(air_block, gravity);
 
 	DiffusionSourceInitialization<FluidBody, FluidParticles, vdWFluid> initialize_a_water_step_thermo(water_block, heat_source, 0);
-	StressTensorHeatSource<FluidBody, FluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
+	DiffusionSourceInitialization<FluidBody, FluidParticles, vdWFluid> initialize_a_air_step_thermo(air_block, heat_source, 0);
+	//StressTensorHeatSource<FluidBody, FluidParticles, vdWFluid>  stress_tensor_heat_water(fluid_body_inner, 0);
 	//vdWAttractionHeatSource<FluidBody, FluidParticles, vdWFluid>  vdW_attr_heat_water(water_block, 0);
 	/** Corrected strong configuration for diffusion solid body. */
 	solid_dynamics::CorrectConfiguration 			correct_configuration(solid_body_inner);
@@ -164,8 +182,9 @@ int main(int argc, char* argv[])
 	GetDiffusionTimeStepSize<FluidBody, FluidParticles, vdWFluid> get_thermal_time_step(water_block);
 	/** Diffusion process between three diffusion bodies. */
 	//ThermalRelaxationComplexWA 	thermal_relaxation_complex_wa(water_air_complex);
-	ThermalRelaxationComplex 	thermal_relaxation_complex_ww(water_wall_complex);
-	ThermalRelaxationComplexWall 	thermal_relaxation_complex_wall(wall_water_complex);
+	ThermalRelaxationComplex        thermal_relaxation_complex_water(water_wall_complex);//, water_wall_contact);
+	ThermalRelaxationComplex        thermal_relaxation_complex_air(air_wall_complex);//, air_wall_contact);
+	ThermalRelaxationComplexWall    thermal_relaxation_complex_wall(wall_complex);
 	/**
 	 * @brief 	Algorithms of fluid dynamics.
 	 */
@@ -174,16 +193,22 @@ int main(int argc, char* argv[])
 		update_water_density_by_summation(fluid_body_inner, water_wall_contact);
 	/** Time step size without considering sound wave speed. */
 	fluid_dynamics::AdvectionTimeStepSize 	get_water_advection_time_step_size(water_block, U_max);
+	fluid_dynamics::AdvectionTimeStepSize 	get_air_advection_time_step_size(air_block, U_max);
 	/** Time step size with considering sound wave speed. */
 	fluid_dynamics::AcousticTimeStepSize get_water_time_step_size(water_block);
+	fluid_dynamics::AcousticTimeStepSize get_air_time_step_size(air_block);
 	/** Pressure relaxation for water by using position verlet time stepping. */
 	fluid_dynamics::vdWPressureRelaxationRiemannWithWall 
-		water_pressure_relaxation(fluid_body_inner, water_wall_contact);
+		water_pressure_relaxation(water_air_complex, water_wall_contact);
+	fluid_dynamics::vdWPressureRelaxationRiemannWithWall 
+		air_pressure_relaxation(air_water_complex, air_wall_contact);
 	fluid_dynamics::vdWDensityRelaxationRiemannWithWall 
 		water_density_relaxation(fluid_body_inner, water_wall_contact);
+	fluid_dynamics::vdWDensityRelaxationRiemannWithWall 
+		air_density_relaxation(air_body_inner, air_wall_contact);
 	//fluid_dynamics::ViscousAccelerationMultiPhase
-	fluid_dynamics::vdWViscousAccelerationInner
-		water_viscou_acceleration(fluid_body_inner);
+	//fluid_dynamics::vdWViscousAccelerationInner
+	//	water_viscou_acceleration(fluid_body_inner);
 	/** Suface tension and wetting effects. */
 //	fluid_dynamics::FreeSurfaceIndicationComplex
 //		surface_detection(fluid_body_inner, water_wall_contact);
@@ -218,6 +243,7 @@ int main(int argc, char* argv[])
 	exec.doexec(correct_configuration);
 	exec.doexec(thermosolid_condition);
 	exec.doexec(thermofluid_initial_condition);
+	exec.doexec(thermoair_initial_condition);
 	Real dt_thermal = exec.doexec(get_thermal_time_step);
 	 /** If the starting time is not zero, please setup the restart time step ro read in restart states. */
 	if (sph_system.restart_step_ != 0)
@@ -269,9 +295,14 @@ int main(int argc, char* argv[])
 			time_instance = tick_count::now();
 			exec.doexec(phaseTransition);
 			water_block.updateCellLinkedList();
+			air_block.updateCellLinkedList();
 			wall_boundary.updateCellLinkedList();
-			water_wall_complex.updateConfiguration();
-			wall_water_complex.updateConfiguration();
+			water_air_complex.updateConfiguration();
+			water_wall_contact.updateConfiguration();
+			air_wall_complex.updateConfiguration();
+			air_water_contact.updateConfiguration();
+			wall_complex.updateConfiguration();
+
 			interval_computing_pressure_relaxation += tick_count::now() - time_instance;
 
 			if (number_of_iterations % screen_output_interval == 0)
@@ -295,8 +326,8 @@ int main(int argc, char* argv[])
 			//exec.doexec(initialize_a_air_step);
 
 			Real Dt_f = exec.doexec(get_water_advection_time_step_size);
-			//Real Dt_a = exec.doexec(get_air_advection_time_step_size);
-			Dt = Dt_f;//SMIN(Dt_f, Dt_a);
+			Real Dt_a = exec.doexec(get_air_advection_time_step_size);
+			Dt = SMIN(Dt_f, Dt_a);
 
 			exec.doexec(update_water_density_by_summation,Dt);
 
@@ -323,22 +354,29 @@ int main(int argc, char* argv[])
 					int halt = 1;
 				}
 				Real dt_f = exec.doexec(get_water_time_step_size);
-				//Real dt_a = exec.doexec(get_air_time_step_size);
-				dt = SMIN(dt_f, Dt)/2;
+				Real dt_a = exec.doexec(get_air_time_step_size);
+				printf("dt_a = %f, dt_f = %f\n",dt_a, dt_f);
+				dt = SMIN(SMIN(dt_f, Dt),dt_a)/2;
 				exec.doexec(initialize_a_water_step_thermo);
+				exec.doexec(initialize_a_air_step_thermo);
 				exec.doexec(initialize_a_water_step);
 				//exec.doexec(water_viscou_acceleration);
+				exec.doexec(air_pressure_relaxation,dt);
 				exec.doexec(water_pressure_relaxation,dt);
 				//exec.doexec(air_pressure_relaxation,dt);
 				//exec.doexec(stress_tensor_heat_water);
 				exec.doexec(water_density_relaxation,dt);
+				exec.doexec(air_density_relaxation,dt);
 				//exec.doexec(air_density_relaxation,dt);
 				int steps = 1+dt/lightdt;
 				//printf("light steps: %d\n",steps);
-				if(photon_particles.total_real_particles_){
+				if(photonExist){
 					auto t = GlobalStaticVariables::physical_time_;
 					for(int i=0; i < steps;i++){
-						if(!photon_particles.total_real_particles_) break;
+						if(!photon_particles.total_real_particles_) {
+							photonExist = 0;
+							break;
+						}
 						photon_block.updateCellLinkedList();
 						photon_contact.updateConfiguration();
 						exec.doexec(photon_propagation,dt/steps);
@@ -346,6 +384,7 @@ int main(int argc, char* argv[])
 							GlobalStaticVariables::physical_time_ += dt/steps;
 							water_block.setNewlyUpdated();
 							wall_boundary.setNewlyUpdated();
+							air_block.setNewlyUpdated();
 							body_states_recording.writeToFile();
 						}
 					}
@@ -355,6 +394,7 @@ int main(int argc, char* argv[])
 				}else{
 					if(GlobalStaticVariables::physical_time_-gent>0){
 						exec.doexec(photon_init);
+						photonExist = 1;
 						gent+=20;
 					}
 				}
@@ -363,12 +403,13 @@ int main(int argc, char* argv[])
 				if(dt_thermal < dt){
 					int steps = 1+dt/dt_thermal;
 					for(int i = 0; i < steps;i++){
-					exec.doexec(thermal_relaxation_complex_ww,dt/steps);
-					exec.doexec(thermal_relaxation_complex_wall,dt/steps);
-
+						exec.doexec(thermal_relaxation_complex_air,dt/steps);
+						exec.doexec(thermal_relaxation_complex_wall,dt/steps);
+						exec.doexec(thermal_relaxation_complex_water,dt/steps);
 					}
 				}else{
-					exec.doexec(thermal_relaxation_complex_ww,dt);
+					exec.doexec(thermal_relaxation_complex_water,dt);
+					exec.doexec(thermal_relaxation_complex_air,dt);
 					exec.doexec(thermal_relaxation_complex_wall,dt);
 				}
 				//exec.doexec(thermal_relaxation_complex_aw,dt);

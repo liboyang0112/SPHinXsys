@@ -57,13 +57,14 @@ operator()(size_t this_index, size_t another_index) const
 
 enum PhaseIndex{lowT=-1,T0=0,highT=1};
 
-void killParticles(BaseParticles &p, size_t n_particles_to_kill_, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_){
+void killParticles(BaseParticles &p, size_t n_particles_to_kill_, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_, size_t offset = 0){
+	if(n_particles_to_kill_<=0) return;
 	size_t ntot = p.total_real_particles_;
 	size_t remaining = ntot-n_particles_to_kill_;
 	size_t killing = 0;
 	size_t copying = ntot-1;
 	size_t tailkilled = n_particles_to_kill_-1;
-	std::sort(particle_kill_list_.begin(),particle_kill_list_.begin()+n_particles_to_kill_);
+	std::sort(particle_kill_list_.begin()+offset,particle_kill_list_.begin()+n_particles_to_kill_+offset);
 	for (size_t copied=0; particle_kill_list_[copied]<remaining && copied<n_particles_to_kill_;)
 	{
 		if(particle_kill_list_[tailkilled]==copying){
@@ -100,15 +101,15 @@ class BasePhaseTransitionDynamics : public InteractionDynamics{
 	std::atomic_size_t n_particles_p2_;
 	StdLargeVec<size_t> &particle_kill_list_;
 	StdLargeVec<size_t> &particle_copy_list_;
-	char* transisionParName;
+	char* transitionParName;
 	std::unique_ptr<DualParticleDataOperation<copyAParticleDataValueFromOtherParticles>> copy_a_particle_value_;
 
 public:
-	BasePhaseTransitionDynamics(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list, StdLargeVec<size_t> &particle_copy_list, libconfig::Setting* phaseTransitionConfig, char* transisionParName = "Temperature") : 
+	BasePhaseTransitionDynamics(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list, StdLargeVec<size_t> &particle_copy_list, libconfig::Setting* phaseTransitionConfig, char* transitionParName = "Temperature") : 
 	InteractionDynamics(*p1.getSPHBody()), p1_(p1), p2_(p2),
-	transisionParName(transisionParName),
-	temperature_((*(std::get<indexScalar>(p1.all_particle_data_)[p1.all_variable_maps_[indexScalar][transisionParName]]))),
-	temperature_p2_((*(std::get<indexScalar>(p2.all_particle_data_)[p2.all_variable_maps_[indexScalar][transisionParName]]))),
+	transitionParName(transitionParName),
+	temperature_((*(std::get<indexScalar>(p1.all_particle_data_)[p1.all_variable_maps_[indexScalar][transitionParName]]))),
+	temperature_p2_((*(std::get<indexScalar>(p2.all_particle_data_)[p2.all_variable_maps_[indexScalar][transitionParName]]))),
 	n_particles_p2_(p2.total_real_particles_),
 	particle_kill_list_(particle_kill_list),
 	particle_copy_list_(particle_copy_list)
@@ -199,8 +200,6 @@ size_t BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::particleTra
 	return ret;
 }
 
-
-
 template<class Phase1Particles, class Phase2Particles>
 class phaseTransitionDynamics{
 public:
@@ -215,7 +214,22 @@ public:
 		p2.addBufferParticles(total_particles_p1);
 		particle_kill_list_.resize(p1.real_particles_bound_);
 		particle_copy_list_.resize(p1.real_particles_bound_/2);
-	}
+	}//Create cache owned only by phase transion dynamics, not recommanded.
+	phaseTransitionDynamics(Phase1Particles &p1, Phase2Particles &p2, libconfig::Setting* phaseTransitionConfig, StdLargeVec<size_t> &cache1, StdLargeVec<size_t> cache2):
+	d1(p1, p2, cache1, cache2, phaseTransitionConfig), d2(p1, p2, cache1, cache2, phaseTransitionConfig)
+	{
+		size_t total_particles_p1 = p1.total_real_particles_;
+		p1.addBufferParticles(p2.total_real_particles_);
+		p2.addBufferParticles(total_particles_p1);
+		if(cache1.size()<p1.real_particles_bound_){
+			printf("Warning: cache1 size %d less than the sum of particle bound %d, this may cause crash when all particles do phase transition at the same time\n", cache1.size(), p1.real_particles_bound_);
+			std::cout << __FILE__ << ':' << __LINE__ << std::endl;
+		}
+		if(cache2.size()<p1.real_particles_bound_){
+			printf("Warning: cache2 size %d less than the sum of particle bound %d, this may cause crash when all particles do phase transition at the same time\n", cache2.size(), p1.real_particles_bound_);
+			std::cout << __FILE__ << ':' << __LINE__ << std::endl;
+		}
+	}//The cache shared by other dynamics, recommanded.
 	void exec(Real dt = 0){
 		d1.exec();
 		d2.exec();

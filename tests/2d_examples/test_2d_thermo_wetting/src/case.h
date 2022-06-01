@@ -24,6 +24,7 @@ auto getParticleTemperature(BaseParticles *base_particles_){
 int dim=2;
 int dof = 2;
 const Real k_B = 1;
+#include "vdW_dynamics_multi_phase.hpp"
 Real DL = 50;						   /**< Tank length. */
 Real DH = 50;						   /**< Tank height. */
 Real particle_spacing_ref = DL / 50.0; /**< Initial reference particle spacing. */
@@ -70,11 +71,29 @@ std::vector<Vecd> createWaterBlockShape()
 	// geometry
 	std::vector<Vecd> water_block_shape;
 	//solid bulk
-	water_block_shape.push_back(Vecd(0.01 * DL, 0.01 * DH));
-	water_block_shape.push_back(Vecd(0.01 * DL, 0.2 * DH));
-	water_block_shape.push_back(Vecd(0.99 * DL, 0.2 * DH));
-	water_block_shape.push_back(Vecd(0.99 * DL, 0.01 * DH));
-	water_block_shape.push_back(Vecd(0.01 * DL, 0.01 * DH));
+	water_block_shape.push_back(Vecd(0.02 * DL, 0.02 * DH));
+	water_block_shape.push_back(Vecd(0.02 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.98 * DL, 0.2 * DH));
+	water_block_shape.push_back(Vecd(0.98 * DL, 0.02 * DH));
+	water_block_shape.push_back(Vecd(0.02 * DL, 0.02 * DH));
+	//floating water
+	//water_block_shape.push_back(Vecd(0.2 * DL, 0.2 * DH));
+	//water_block_shape.push_back(Vecd(0.2 * DL, 0.5 * DH));
+	//water_block_shape.push_back(Vecd(0.8 * DL, 0.5 * DH));
+	//water_block_shape.push_back(Vecd(0.8 * DL, 0.2 * DH));
+	//water_block_shape.push_back(Vecd(0.2 * DL, 0.2 * DH));
+	return water_block_shape;
+}
+std::vector<Vecd> createAirBlockShape()
+{
+	// geometry
+	std::vector<Vecd> water_block_shape;
+	//solid bulk
+	water_block_shape.push_back(Vecd(0.1 * DL, 0.3 * DH));
+	water_block_shape.push_back(Vecd(0.1 * DL, 0.8 * DH));
+	water_block_shape.push_back(Vecd(0.9 * DL, 0.8 * DH));
+	water_block_shape.push_back(Vecd(0.9 * DL, 0.3 * DH));
+	water_block_shape.push_back(Vecd(0.1 * DL, 0.3 * DH));
 	//floating water
 	//water_block_shape.push_back(Vecd(0.2 * DL, 0.2 * DH));
 	//water_block_shape.push_back(Vecd(0.2 * DL, 0.5 * DH));
@@ -171,6 +190,7 @@ Real vdWFluid::getSoundSpeed(Real p, Real rho)
 	return ret;
 }
 using vdWParticles = DiffusionReactionParticles<FluidParticles, vdWFluid>;
+using WallParticles = DiffusionReactionParticles<SolidParticles, Solid>;
 /**
  * application dependent solid body initial condition
  */
@@ -349,13 +369,13 @@ public:
 class AirBlock : public FluidBody
 {
 public:
-	AirBlock(SPHSystem &sph_system, const std::string &body_name)
-		: FluidBody(sph_system, body_name) //, makeShared<SPHAdaptation>(1.3, 1))
+        AirBlock(SPHSystem &sph_system, const string &body_name, shared_ptr<SPHAdaptation> adp)
+                : FluidBody(sph_system, body_name, adp)
 	{
 		/** Geomtry definition. */
 		MultiPolygon multi_polygon;
-		multi_polygon.addAPolygon(createInnerWallShape(), ShapeBooleanOps::add);
-		multi_polygon.addAPolygon(createWaterBlockShape(), ShapeBooleanOps::sub);
+		multi_polygon.addAPolygon(createAirBlockShape(), ShapeBooleanOps::add);
+		//multi_polygon.addAPolygon(createWaterBlockShape(), ShapeBooleanOps::sub);
 		body_shape_.add<MultiPolygonShape>(multi_polygon);
 	}
 };
@@ -661,7 +681,7 @@ namespace SPH::fluid_dynamics
 			Real sigma2 = pow(this->sph_adaptation_->ReferenceSpacing(),2);
 			Real r_ij2 = r_ij*r_ij;
 			if(r_ij2 < sigma2)
-			this->dvel_dt_[index_i] += e_ij*(3*r_ij/sigma2)*pow(1-r_ij2/sigma2,3) / state_i.rho_ / this->Vol_[index_i];
+			this->dvel_dt_[index_i] += this->material_->ReferenceDensity()*e_ij*(3*r_ij/sigma2)*pow(1-r_ij2/sigma2,3) / state_i.rho_ / this->Vol_[index_i];
 		}
 		temperature_[index_i] += internalEnergyIncrease * 2 / dof / k_B * dt;
 	}    
@@ -698,6 +718,11 @@ namespace SPH::fluid_dynamics
 	template <class BasePressureRelaxationType>
 	void vdWPressureRelaxation<BasePressureRelaxationType>::Interaction(size_t index_i, Real dt)
 	{
+		if(index_i == 57){
+			if(this->temperature_[index_i]>0.5){
+				int halt = 1;
+			}
+		}
 		BasePressureRelaxationType::Interaction(index_i, dt);
 		Real pi_att = -((vdWFluid*)this->material_)->getAlpha()*this->rho_n_[index_i]*this->rho_n_[index_i];
 		Real pi = this->p_[index_i]-pi_att;
@@ -870,7 +895,7 @@ namespace SPH::fluid_dynamics
 	}
 
 
-	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<vdWPressureRelaxation<vdWPressureRelaxationInner<NoRiemannSolver>>>;
+	using vdWPressureRelaxationRiemannWithWall = BasePressureRelaxationWithWall<vdWPressureRelaxation<vdWPressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
 	using vdWDensityRelaxationRiemannWithWall = vdWDensityRelaxation<vdWBaseDensityRelaxationInner<NoRiemannSolver>>;
 	using vdWExtendMultiPhasePressureRelaxationRiemannWithWall = ExtendPressureRelaxationWithWall<ExtendPressureRelaxation<BasePressureRelaxationMultiPhase<vdWPressureRelaxationInner<NoRiemannSolver>>>>;
 	using vdWMultiPhaseDensityRelaxationRiemannWithWall = vdWDensityRelaxation<BaseDensityRelaxationMultiPhase<BaseDensityRelaxationInner<NoRiemannSolver>>>;
@@ -896,6 +921,189 @@ namespace SPH::fluid_dynamics
 		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 			sigma += inner_neighborhood.W_ij_n_[0][n] * mass_[inner_neighborhood.j_[n]];
+		/** Contact interaction. */
+		//Real inv_Vol_0_i = rho0_ / mass_[index_i];
+		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)
+		{
+			StdLargeVec<Real> &contact_mass_k = *(this->contact_mass_[k]);
+			Real contact_inv_rho0_k = contact_inv_rho0_[k];
+			Neighborhood &contact_neighborhood = (*this->contact_configuration_[k])[index_i];
+			for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
+			{
+			//	sigma += contact_neighborhood.W_ij_n_[0][n] * inv_Vol_0_i * contact_inv_rho0_k * contact_mass_k[contact_neighborhood.j_[n]];
+				sigma += contact_neighborhood.W_ij_n_[0][n] * mass_[index_i];
+			}
+		}
+		//Real rho_new = sigma * rho0_ * inv_sigma0_;
+		Real rho_new = sigma;
+		this->particles_->drho_dt_[index_i] = (rho_new-this->rho_sum_[index_i])/dt;
+		this->rho_sum_[index_i] = rho_new;
+	}
+	
+	template <int DataTypeIndex, typename VariableType>
+	struct averageAParticleDataValue
+	{
+		void operator()(ParticleData &particle_data, size_t this_index, Real this_weight, size_t another_index, Real another_weight) const {
+        	for (size_t i = 0; i != std::get<DataTypeIndex>(particle_data).size(); ++i){
+        	    (*std::get<DataTypeIndex>(particle_data)[i])[this_index] =
+					(*std::get<DataTypeIndex>(particle_data)[i])[this_index]*this_weight+
+        	    	(*std::get<DataTypeIndex>(particle_data)[i])[another_index]*another_weight;
+			}
+		};
+	};	
+	template <>
+	struct averageAParticleDataValue<indexPointer, void*>
+	{
+		void operator()(ParticleData &particle_data, size_t this_index, Real this_weight, size_t another_index, Real another_weight) const {
+        	for (size_t i = 0; i != std::get<indexPointer>(particle_data).size(); ++i){
+				if(this_weight < another_weight)
+        	    	(*std::get<indexPointer>(particle_data)[i])[this_index] =
+        	    		(*std::get<indexPointer>(particle_data)[i])[another_index];
+			}
+		};
+	};
+
+	class DensitySummationWithMergingAndSplitting : public DensitySummationFreeSurfaceComplex
+	{
+		ParticleDataOperation<averageAParticleDataValue> average_a_particle_value_;
+		size_t n_particles_to_merge_;
+		std::atomic_size_t n_particles_to_split_;
+		ParticleData &all_particle_data_;
+		StdLargeVec<size_t> &merge_chain_; // V[index_i] = index_j, meaning merge i to j
+		StdLargeVec<size_t> &merge_list_; // list of indices of particles to merge
+		StdLargeVec<size_t> &split_list_; // list of indices of particles to split
+		StdLargeVec<size_t> &split_to_;  // list of indices of split result particles
+		int splitN;
+		Real mergeThreshold = 0.2;
+		Real splitThreshold = 0.8;
+	public:
+		DensitySummationWithMergingAndSplitting(BaseBodyRelationInner &inner_relation,
+		BaseBodyRelationContact &contact_relation,
+		StdLargeVec<size_t> &cache1, StdLargeVec<size_t> &cache2,
+		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4) : 
+		DensitySummationFreeSurfaceComplex(inner_relation, contact_relation),
+		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4),
+		all_particle_data_(base_particles_->all_particle_data_){
+			splitN = pow(2,Vecd(0).size());
+		};
+
+		DensitySummationWithMergingAndSplitting(ComplexBodyRelation &complex_relation, BaseBodyRelationContact &extra_contact_relation,
+		StdLargeVec<size_t> &cache1, StdLargeVec<size_t> &cache2,
+		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4) : 
+		DensitySummationFreeSurfaceComplex(complex_relation, extra_contact_relation),
+		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4),
+		all_particle_data_(base_particles_->all_particle_data_){
+			splitN = pow(2,Vecd(0).size());
+		};
+		virtual ~DensitySummationWithMergingAndSplitting(){};
+
+	protected:
+		// virtual void Update(size_t index_i, Real dt = 0.0) override;
+		virtual Real ReinitializedDensity(Real rho_sum, Real rho_0, Real rho_n) override { return rho_sum; };
+		virtual void Interaction(size_t index_i, Real dt) override;
+		void createMergeList(){
+			n_particles_to_merge_ = 0;
+			for(size_t idx = base_particles_->total_real_particles_-1 ; idx >= 0 ; idx--){
+				size_t idxj = merge_chain_[idx];
+				if(idxj != idx){
+					merge_chain_[idxj] = idxj;
+					merge_list_[n_particles_to_merge_++] = idx;
+				}
+			}
+		}
+		void mergeParticles(){
+			parallel_for(
+				blocked_range<size_t>(0, n_particles_to_merge_),
+				[&](const blocked_range<size_t> &r)
+				{
+					for (size_t i = r.begin(); i != r.end(); ++i)
+					{
+						size_t &to_merge = merge_list_[i];
+						size_t &target = merge_chain_[to_merge];
+						average_a_particle_value_(all_particle_data_,target, mass_[target], to_merge, mass_[to_merge]);
+					}
+				},
+				ap
+			);
+		}
+		void splitParticles(){
+			size_t reservedSpace = splitN * n_particles_to_split_;
+			for(size_t i = 0; i < reservedSpace; i++){
+				if(i < n_particles_to_merge_){
+					split_to_[i] = merge_list_[i];
+				}else{
+					split_to_[i] = i-n_particles_to_merge_+base_particles_->total_real_particles_;
+				}
+			}
+			parallel_for(
+				blocked_range<size_t>(0, n_particles_to_split_),
+				[&](const blocked_range<size_t> &r)
+				{
+					for (size_t i = r.begin(); i != r.end(); ++i)
+					{
+						int spliti = i*splitN;
+						mass_[split_list_[i]] /= splitN;
+						for(size_t dim = 0; dim < Vecd(0).size(); dim++){
+							for(size_t i = -1; i < 2 ; i+=2){
+								base_particles_->copyFromAnotherParticle(split_to_[spliti++],split_list_[i]);
+								base_particles_->pos_n_[split_to_[spliti]][dim] += i*sph_adaptation_->ReferenceSmoothingLength();
+							}
+						}
+					}
+				},
+				ap
+			);
+		}
+		void reset(){
+
+		}
+		void exec(Real dt) override{
+			//Calculate density, create merge_chain_, split_list_
+			DensitySummationFreeSurfaceComplex::exec();
+			//Merging is more complex in parallel executing,
+			//Need to decide which particle to merge first.
+			//Translate merge_chain_ to merge_list_
+			createMergeList();
+			//executing particle merging,
+			//Modify target particle, but do not kill merged particle.
+			mergeParticles();
+			//executing particle splitting, result particles take id's of merged particles.
+			splitParticles();
+			//kill the rest merged particles, we do it here 
+			//because particle splitting can take the id of merged particles,
+			//to reduce particle copying which takes relative more time.
+			killParticles(*this->base_particles_, 
+			n_particles_to_merge_ - splitN * n_particles_to_split_,
+			merge_list_, split_to_, splitN * n_particles_to_split_);  
+			reset();
+		};
+	};
+
+	// void DensitySummationWithMergingAndSplitting::Update(size_t index_i, Real dt){}
+
+	void DensitySummationWithMergingAndSplitting::Interaction(size_t index_i, Real dt)
+	{
+		Real sigma = W0_ * mass_[index_i];
+		Real ratio = sigma;
+		const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+		size_t closest_idx;
+		Real closest_W = 0;
+		for (size_t n = 0; n != inner_neighborhood.current_size_; ++n){
+			sigma += inner_neighborhood.W_ij_n_[0][n] * mass_[inner_neighborhood.j_[n]];
+			if(closest_W < inner_neighborhood.W_ij_n_[0][n]){
+				closest_W = inner_neighborhood.W_ij_n_[0][n];
+				closest_idx = inner_neighborhood.j_[n];
+			}
+		}
+		ratio /= sigma;
+		if(ratio < mergeThreshold){
+			merge_chain_[index_i] = closest_idx;
+		}else{
+			merge_chain_[index_i] = index_i;
+			if(ratio > splitThreshold){
+				split_list_[n_particles_to_split_++] = index_i;
+			}
+		}
 		/** Contact interaction. */
 		//Real inv_Vol_0_i = rho0_ / mass_[index_i];
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)

@@ -7,7 +7,7 @@
 #define PARTICLE_DYNAMICS_DIFFUSION_REACTION_HPP
 
 #include "particle_dynamics_diffusion_reaction.h"
-
+#include <cassert>
 namespace SPH
 {
 	//=================================================================================================//
@@ -66,6 +66,7 @@ namespace SPH
 			Real phi_ij = species_n_[l][particle_i] - species_n_[l][particle_j];
 			Real diff_ch_rate = diff_coff_ij * phi_ij * surface_area_ij;
 			diffusion_dt_[m][particle_i] += diff_ch_rate;
+			assert(diffusion_dt_[m][particle_i] == diffusion_dt_[m][particle_i]);
 		}
 	}
 	//=================================================================================================//
@@ -140,6 +141,7 @@ namespace SPH
 			size_t l = species_diffusion_[m]->gradient_species_index_;
 			Real phi_ij = species_n_[l][particle_i] - species_n_k[l][particle_j];
 			diffusion_dt_[m][particle_i] += diff_coff_ij * phi_ij * surface_area_ij;
+			assert(diffusion_dt_[m][particle_i] == diffusion_dt_[m][particle_i]);
 		}
 	}
 	//=================================================================================================//
@@ -170,11 +172,15 @@ namespace SPH
 
 				for (size_t m = 0; m < species_diffusion_.size(); ++m)
 				{
+					if(area_ij!=area_ij){
+						int halt = 1;
+					}
 					contactdiffusion = (DiffusionReaction<ContactBaseParticlesType, ContactBaseMaterialType> *)this->contact_material_[k];
-					Real diff_coff_ij = species_diffusion_[m]->getContactDiffusionCoff((BaseDiffusion*)contactdiffusion->SpeciesDiffusion()[m], e_ij);
+					Real diff_coff_ij = species_diffusion_[m]->getContactDiffusionCoff(contactdiffusion->SpeciesDiffusion()[m], e_ij);
 					size_t l = species_diffusion_[m]->gradient_species_index_;
 					Real phi_ij = species_n_[l][index_i] - species_n_k[l][index_j];
 					diffusion_dt_[m][index_i] += diff_coff_ij * phi_ij * area_ij;
+					//assert(diffusion_dt_[m][index_i]==diffusion_dt_[m][index_i]);
 				}
 			}
 		}
