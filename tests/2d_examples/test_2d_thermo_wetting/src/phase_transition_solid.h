@@ -215,7 +215,7 @@ public:
 		particle_kill_list_.resize(p1.real_particles_bound_);
 		particle_copy_list_.resize(p1.real_particles_bound_/2);
 	}//Create cache owned only by phase transion dynamics, not recommanded.
-	phaseTransitionDynamics(Phase1Particles &p1, Phase2Particles &p2, libconfig::Setting* phaseTransitionConfig, StdLargeVec<size_t> &cache1, StdLargeVec<size_t> cache2):
+	phaseTransitionDynamics(Phase1Particles &p1, Phase2Particles &p2, libconfig::Setting* phaseTransitionConfig, StdLargeVec<size_t> &cache1, StdLargeVec<size_t> &cache2):
 	d1(p1, p2, cache1, cache2, phaseTransitionConfig), d2(p1, p2, cache1, cache2, phaseTransitionConfig)
 	{
 		size_t total_particles_p1 = p1.total_real_particles_;

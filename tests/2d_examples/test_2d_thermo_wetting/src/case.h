@@ -1055,7 +1055,8 @@ namespace SPH::fluid_dynamics
 			);
 		}
 		void reset(){
-
+			n_particles_to_split_ = 0;
+			n_particles_to_merge_ = 0;
 		}
 		void exec(Real dt) override{
 			//Calculate density, create merge_chain_, split_list_

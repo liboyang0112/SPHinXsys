@@ -113,6 +113,19 @@ int main(int argc, char* argv[])
 	PhotonBlock photon_block(sph_system, "PhotonBody", adp);
 	PhotonParticles photon_particles(photon_block, makeShared<Photon>(&(*cfg.Photons)[0]));
 	photon_particles.addAVariableToWrite<indexScalar, Real>("Intensity");
+
+	size_t cacheSize = diffusion_fluid_body_particles.total_real_particles_
+	+ wall_particles.total_real_particles_ + diffusion_air_body_particles.total_real_particles_;
+	StdLargeVec<size_t> caches1;
+	caches1.resize(cacheSize);
+	StdLargeVec<size_t> caches2;
+	caches2.resize(cacheSize);
+	StdLargeVec<size_t> caches3;
+	caches3.resize(cacheSize);
+	StdLargeVec<size_t> caches4;
+	caches4.resize(cacheSize);
+
+
 	Real laserIntensity = 0;
 	(*cfg.Photons)[0].lookupValue("Intensity",laserIntensity);
 	PlainWave laser(Vecd(0,-1),laserIntensity);
@@ -125,9 +138,8 @@ int main(int argc, char* argv[])
 	
 	BodyRelationContact photon_contact(photon_block,{&wall_boundary, &water_block});
 	PhotonPropagation photon_propagation(photon_contact);
-	
-	vdWSolidPhaseTransitionDynamics phaseTransition(wall_particles, diffusion_fluid_body_particles, cfg.PhaseTransition);
 
+	vdWSolidPhaseTransitionDynamics phaseTransition(wall_particles, diffusion_fluid_body_particles, cfg.PhaseTransition, caches1, caches2);
 	ObserverBody temperature_observer(sph_system, "FluidObserver");
 	ObserverParticles temperature_observer_particles(temperature_observer, makeShared<ObserverParticleGenerator>());
 	/**
@@ -191,6 +203,8 @@ int main(int argc, char* argv[])
 	 /** Evaluation of density by summation approach. */
 	fluid_dynamics::DensitySummationFreeSurfaceComplexWithoutUpdate 	
 		update_water_density_by_summation(fluid_body_inner, water_wall_contact);
+	fluid_dynamics::DensitySummationFreeSurfaceComplexWithoutUpdate 	
+		update_air_density_by_summation(air_body_inner, air_wall_contact);
 	/** Time step size without considering sound wave speed. */
 	fluid_dynamics::AdvectionTimeStepSize 	get_water_advection_time_step_size(water_block, U_max);
 	fluid_dynamics::AdvectionTimeStepSize 	get_air_advection_time_step_size(air_block, U_max);
@@ -330,8 +344,8 @@ int main(int argc, char* argv[])
 			Dt = SMIN(Dt_f, Dt_a);
 
 			exec.doexec(update_water_density_by_summation,Dt);
+			exec.doexec(update_air_density_by_summation,Dt);
 
-			//exec.doexec(update_air_density_by_summation);
 			//exec.doexec(air_transport_correction,Dt);
 
 			//exec.doexec(air_viscou_acceleration);
@@ -355,7 +369,6 @@ int main(int argc, char* argv[])
 				}
 				Real dt_f = exec.doexec(get_water_time_step_size);
 				Real dt_a = exec.doexec(get_air_time_step_size);
-				printf("dt_a = %f, dt_f = %f\n",dt_a, dt_f);
 				dt = SMIN(SMIN(dt_f, Dt),dt_a)/2;
 				exec.doexec(initialize_a_water_step_thermo);
 				exec.doexec(initialize_a_air_step_thermo);
