@@ -106,11 +106,11 @@ std::vector<Vecd> createPhotonBlockShape()
 {
 	// geometry
 	std::vector<Vecd> photon_block_shape;
-	photon_block_shape.push_back(Vecd(0.35 * DL, 0.56 * DH));
-	photon_block_shape.push_back(Vecd(0.35 * DL, 0.6 * DH));
-	photon_block_shape.push_back(Vecd(0.45 * DL, 0.6 * DH));
 	photon_block_shape.push_back(Vecd(0.45 * DL, 0.56 * DH));
-	photon_block_shape.push_back(Vecd(0.35 * DL, 0.56 * DH));
+	photon_block_shape.push_back(Vecd(0.45 * DL, 0.6 * DH));
+	photon_block_shape.push_back(Vecd(0.55 * DL, 0.6 * DH));
+	photon_block_shape.push_back(Vecd(0.55 * DL, 0.56 * DH));
+	photon_block_shape.push_back(Vecd(0.45 * DL, 0.56 * DH));
 	return photon_block_shape;
 }
 /** create outer wall shape */
@@ -182,11 +182,7 @@ Real vdWFluid::getSoundSpeed(Real p, Real rho)
 {
 	Real ratio = 1. / (1 - rho / rho_max_);
 	Real ret = sqrt(fabs(gamma_ * ratio * (alpha_ * rho + p / rho) - 2 * alpha_ * rho));
-	if (ret != ret)
-	{
-		printf("WARNING: Sound Speed is NAN");
-		exit(0);
-	}
+	assert (ret == ret);
 	return ret;
 }
 using vdWParticles = DiffusionReactionParticles<FluidParticles, vdWFluid>;
@@ -678,10 +674,10 @@ namespace SPH::fluid_dynamics
 			//10.1016/j.ijheatmasstransfer.2018.10.119
 			//https://www.docin.com/p-1406155771.html
 			//W.G. Hoover, Smooth Particle Applied Mechanics: The State of the Art (Advanced Series in Nonlinear Dynamics), World Scientific Publishing Company, River Edge, NJ, 2006.
-			Real sigma2 = pow(this->sph_adaptation_->ReferenceSpacing(),2);
-			Real r_ij2 = r_ij*r_ij;
-			if(r_ij2 < sigma2)
-			this->dvel_dt_[index_i] += this->material_->ReferenceDensity()*e_ij*(3*r_ij/sigma2)*pow(1-r_ij2/sigma2,3) / state_i.rho_ / this->Vol_[index_i];
+			//Real sigma2 = pow(this->sph_adaptation_->ReferenceSpacing(),2);
+			//Real r_ij2 = r_ij*r_ij;
+			//if(r_ij2 < sigma2)
+			//this->dvel_dt_[index_i] += this->material_->ReferenceDensity()*e_ij*(3*r_ij/sigma2)*pow(1-r_ij2/sigma2,3) / state_i.rho_ / this->Vol_[index_i];
 		}
 		temperature_[index_i] += internalEnergyIncrease * 2 / dof / k_B * dt;
 	}    
@@ -969,31 +965,37 @@ namespace SPH::fluid_dynamics
 		size_t n_particles_to_merge_;
 		std::atomic_size_t n_particles_to_split_;
 		ParticleData &all_particle_data_;
+		StdLargeVec<size_t> &merge_tmp_; // record particles involved in merging
+		std::atomic_size_t merge_tmp_n_; // record particles involved in merging
 		StdLargeVec<size_t> &merge_chain_; // V[index_i] = index_j, meaning merge i to j
 		StdLargeVec<size_t> &merge_list_; // list of indices of particles to merge
 		StdLargeVec<size_t> &split_list_; // list of indices of particles to split
 		StdLargeVec<size_t> &split_to_;  // list of indices of split result particles
 		int splitN;
-		Real mergeThreshold = 0.2;
-		Real splitThreshold = 0.8;
+		Real mergeThreshold = 0.05;
+		Real splitThreshold = 0.3;
 	public:
 		DensitySummationWithMergingAndSplitting(BaseBodyRelationInner &inner_relation,
 		BaseBodyRelationContact &contact_relation,
 		StdLargeVec<size_t> &cache1, StdLargeVec<size_t> &cache2,
-		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4) : 
+		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4,
+		StdLargeVec<size_t> &cache5) : 
 		DensitySummationFreeSurfaceComplex(inner_relation, contact_relation),
-		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4),
+		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4), merge_tmp_(cache5),
 		all_particle_data_(base_particles_->all_particle_data_){
-			splitN = pow(2,Vecd(0).size());
+			splitN = 2*(base_particles_->pos_n_[0].size());
+			reset();
 		};
 
 		DensitySummationWithMergingAndSplitting(ComplexBodyRelation &complex_relation, BaseBodyRelationContact &extra_contact_relation,
 		StdLargeVec<size_t> &cache1, StdLargeVec<size_t> &cache2,
-		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4) : 
+		StdLargeVec<size_t> &cache3, StdLargeVec<size_t> &cache4,
+		StdLargeVec<size_t> &cache5) : 
 		DensitySummationFreeSurfaceComplex(complex_relation, extra_contact_relation),
-		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4),
+		merge_chain_(cache1), merge_list_(cache2), split_list_(cache3), split_to_(cache4), merge_tmp_(cache5),
 		all_particle_data_(base_particles_->all_particle_data_){
-			splitN = pow(2,Vecd(0).size());
+			splitN = 2*(base_particles_->pos_n_[0].size());
+			reset();
 		};
 		virtual ~DensitySummationWithMergingAndSplitting(){};
 
@@ -1003,9 +1005,16 @@ namespace SPH::fluid_dynamics
 		virtual void Interaction(size_t index_i, Real dt) override;
 		void createMergeList(){
 			n_particles_to_merge_ = 0;
-			for(size_t idx = base_particles_->total_real_particles_-1 ; idx >= 0 ; idx--){
+			
+			size_t mergeidx = merge_tmp_n_;
+			while(mergeidx != 0){ // be careful, size_t cant be negative.
+				mergeidx--;
+				size_t idx = merge_tmp_[mergeidx];
 				size_t idxj = merge_chain_[idx];
 				if(idxj != idx){
+					if(idxj >= merge_chain_.size()){
+						int halt = 1;
+					}
 					merge_chain_[idxj] = idxj;
 					merge_list_[n_particles_to_merge_++] = idx;
 				}
@@ -1020,7 +1029,9 @@ namespace SPH::fluid_dynamics
 					{
 						size_t &to_merge = merge_list_[i];
 						size_t &target = merge_chain_[to_merge];
+						Real totmass = mass_[target] + mass_[to_merge];
 						average_a_particle_value_(all_particle_data_,target, mass_[target], to_merge, mass_[to_merge]);
+						mass_[target] = totmass;
 					}
 				},
 				ap
@@ -1035,32 +1046,39 @@ namespace SPH::fluid_dynamics
 					split_to_[i] = i-n_particles_to_merge_+base_particles_->total_real_particles_;
 				}
 			}
-			parallel_for(
-				blocked_range<size_t>(0, n_particles_to_split_),
-				[&](const blocked_range<size_t> &r)
-				{
-					for (size_t i = r.begin(); i != r.end(); ++i)
+			size_t tmp = n_particles_to_split_.load();
+			//parallel_for(
+			//	blocked_range<size_t>(0, tmp),
+			//	[&](const blocked_range<size_t> &r)
+			//	{
+			//		for (size_t i = r.begin(); i != r.end(); ++i)
+					for (size_t i = 0; i != tmp; ++i)
 					{
 						int spliti = i*splitN;
-						mass_[split_list_[i]] /= splitN;
-						for(size_t dim = 0; dim < Vecd(0).size(); dim++){
-							for(size_t i = -1; i < 2 ; i+=2){
-								base_particles_->copyFromAnotherParticle(split_to_[spliti++],split_list_[i]);
-								base_particles_->pos_n_[split_to_[spliti]][dim] += i*sph_adaptation_->ReferenceSmoothingLength();
+						mass_[split_list_[i]] /= splitN+1;
+						for(size_t dim = 0; dim < base_particles_->pos_n_[0].size(); dim++){
+							for(Real j = -1; j < 2 ; j+=2){
+								base_particles_->copyFromAnotherParticle(split_to_[spliti],split_list_[i]);
+								Real eps = j*sph_adaptation_->ReferenceSmoothingLength()/3;
+								base_particles_->pos_n_[split_to_[spliti++]][dim] += eps;
 							}
 						}
 					}
-				},
-				ap
-			);
+			//	},
+			//	ap
+			//);
 		}
 		void reset(){
+			base_particles_->total_real_particles_ += splitN * n_particles_to_split_ - n_particles_to_merge_;
 			n_particles_to_split_ = 0;
 			n_particles_to_merge_ = 0;
+			merge_tmp_n_ = 0;
 		}
-		void exec(Real dt) override{
-			//Calculate density, create merge_chain_, split_list_
-			DensitySummationFreeSurfaceComplex::exec();
+		void postProcess(){
+			if(base_particles_->total_real_particles_<=0) {
+				reset();
+				return;
+			}
 			//Merging is more complex in parallel executing,
 			//Need to decide which particle to merge first.
 			//Translate merge_chain_ to merge_list_
@@ -1073,11 +1091,23 @@ namespace SPH::fluid_dynamics
 			//kill the rest merged particles, we do it here 
 			//because particle splitting can take the id of merged particles,
 			//to reduce particle copying which takes relative more time.
+			if(n_particles_to_merge_ > splitN * n_particles_to_split_)
 			killParticles(*this->base_particles_, 
 			n_particles_to_merge_ - splitN * n_particles_to_split_,
-			merge_list_, split_to_, splitN * n_particles_to_split_);  
+			merge_list_, split_to_, splitN * n_particles_to_split_); 
 			reset();
 		};
+		public:
+		void exec(Real dt) override{
+			//Calculate density, create merge_chain_, split_list_
+			DensitySummationFreeSurfaceComplex::exec();
+			postProcess();
+		}
+		void parallel_exec(Real dt) override{
+			//Calculate density, create merge_chain_, split_list_
+			DensitySummationFreeSurfaceComplex::parallel_exec();
+			postProcess();
+		}
 	};
 
 	// void DensitySummationWithMergingAndSplitting::Update(size_t index_i, Real dt){}
@@ -1096,15 +1126,6 @@ namespace SPH::fluid_dynamics
 				closest_idx = inner_neighborhood.j_[n];
 			}
 		}
-		ratio /= sigma;
-		if(ratio < mergeThreshold){
-			merge_chain_[index_i] = closest_idx;
-		}else{
-			merge_chain_[index_i] = index_i;
-			if(ratio > splitThreshold){
-				split_list_[n_particles_to_split_++] = index_i;
-			}
-		}
 		/** Contact interaction. */
 		//Real inv_Vol_0_i = rho0_ / mass_[index_i];
 		for (size_t k = 0; k < this->contact_configuration_.size(); ++k)
@@ -1116,6 +1137,16 @@ namespace SPH::fluid_dynamics
 			{
 			//	sigma += contact_neighborhood.W_ij_n_[0][n] * inv_Vol_0_i * contact_inv_rho0_k * contact_mass_k[contact_neighborhood.j_[n]];
 				sigma += contact_neighborhood.W_ij_n_[0][n] * mass_[index_i];
+			}
+		}
+		ratio /= sigma;
+		if(ratio < mergeThreshold){
+			merge_chain_[index_i] = closest_idx;
+			merge_tmp_[merge_tmp_n_++] = index_i;
+		}else{
+			merge_chain_[index_i] = index_i;
+			if(ratio > splitThreshold && n_particles_to_split_*splitN+base_particles_->total_real_particles_<base_particles_->real_particles_bound_){
+				split_list_[n_particles_to_split_++] = index_i;
 			}
 		}
 		//Real rho_new = sigma * rho0_ * inv_sigma0_;

@@ -124,6 +124,8 @@ int main(int argc, char* argv[])
 	caches3.resize(cacheSize);
 	StdLargeVec<size_t> caches4;
 	caches4.resize(cacheSize);
+	StdLargeVec<size_t> caches5;
+	caches5.resize(cacheSize);
 
 
 	Real laserIntensity = 0;
@@ -201,6 +203,8 @@ int main(int argc, char* argv[])
 	 * @brief 	Algorithms of fluid dynamics.
 	 */
 	 /** Evaluation of density by summation approach. */
+	//fluid_dynamics::DensitySummationWithMergingAndSplitting 	
+	//	update_water_density_by_summation(fluid_body_inner, water_wall_contact, caches1, caches2, caches3, caches4, caches5);
 	fluid_dynamics::DensitySummationFreeSurfaceComplexWithoutUpdate 	
 		update_water_density_by_summation(fluid_body_inner, water_wall_contact);
 	fluid_dynamics::DensitySummationFreeSurfaceComplexWithoutUpdate 	
@@ -263,12 +267,19 @@ int main(int argc, char* argv[])
 	if (sph_system.restart_step_ != 0)
 	{
 		GlobalStaticVariables::physical_time_ = restart_io.readRestartFiles(sph_system.restart_step_);
-		water_block.updateCellLinkedList();
-		fluid_body_inner.updateConfiguration();
-		water_wall_contact.updateConfiguration();
+
 		//air_water_complex.updateConfiguration();
 		//air_wall_contact.updateConfiguration();
-	}
+	}		
+	exec.doexec(phaseTransition);
+	water_block.updateCellLinkedList();
+	air_block.updateCellLinkedList();
+	wall_boundary.updateCellLinkedList();
+	water_air_complex.updateConfiguration();
+	water_wall_contact.updateConfiguration();
+	air_wall_complex.updateConfiguration();
+	air_water_contact.updateConfiguration();
+	wall_complex.updateConfiguration();
 	/** Output the start states of bodies. */
 	body_states_recording.writeToFile(0);
 	/**
@@ -307,6 +318,8 @@ int main(int argc, char* argv[])
 		while (1)
 		{
 			time_instance = tick_count::now();
+			exec.doexec(update_water_density_by_summation,Dt);
+			exec.doexec(update_air_density_by_summation,Dt);
 			exec.doexec(phaseTransition);
 			water_block.updateCellLinkedList();
 			air_block.updateCellLinkedList();
@@ -343,8 +356,6 @@ int main(int argc, char* argv[])
 			Real Dt_a = exec.doexec(get_air_advection_time_step_size);
 			Dt = SMIN(Dt_f, Dt_a);
 
-			exec.doexec(update_water_density_by_summation,Dt);
-			exec.doexec(update_air_density_by_summation,Dt);
 
 			//exec.doexec(air_transport_correction,Dt);
 

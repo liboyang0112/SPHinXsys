@@ -112,7 +112,8 @@ public:
 	temperature_p2_((*(std::get<indexScalar>(p2.all_particle_data_)[p2.all_variable_maps_[indexScalar][transitionParName]]))),
 	n_particles_p2_(p2.total_real_particles_),
 	particle_kill_list_(particle_kill_list),
-	particle_copy_list_(particle_copy_list)
+	particle_copy_list_(particle_copy_list),
+	splitting(1)
 	{
 		phaseTransitionConfig->lookupValue("PhaseChangeTemperature",transfer_T_);
 		phaseTransitionConfig->lookupValue("LatentHeat",latent_heat_);
@@ -120,7 +121,7 @@ public:
 		p1.template registerAVariable<indexScalar, Real>(latent_heat_storage_, "LatentHeatStorage");
 		copy_a_particle_value_ = make_unique<DualParticleDataOperation<copyAParticleDataValueFromOtherParticles>>(p2,p1);
 	}
-	size_t particleTransfer(size_t index_i);
+	size_t particleTransfer(size_t index_i, Real newT);
 	void updateList(){
 		if(n_particles_to_kill_.load()) killParticles(p1_, n_particles_to_kill_.load(), particle_kill_list_, particle_copy_list_);
 		p1_.total_real_particles_ -= n_particles_to_kill_;
@@ -138,6 +139,7 @@ public:
 		updateList();
 	}
 protected:
+	int splitting;
 	void processLatentHeat(size_t index_i, PhaseIndex pi);
 };
 
@@ -158,7 +160,7 @@ void BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::processLatent
 		if((latent_heat_storage_[index_i]+=dT) >= latent_heat_){
 			Real extra = latent_heat_storage_[index_i]-latent_heat_;
 			latent_heat_storage_[index_i] = 0;
-			size_t targetid = particleTransfer(index_i);
+			size_t targetid = particleTransfer(index_i, transfer_T_-pi*extra);
 			temperature_p2_[targetid] = transfer_T_-pi*extra;
 		}else{
 			temperature_[index_i] = transfer_T_;
@@ -171,7 +173,7 @@ class phaseTransitionDynamicsLowT: public BasePhaseTransitionDynamics<Phase1Part
 public:
 	phaseTransitionDynamicsLowT(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_, libconfig::Setting* phaseTransitionConfig):
 	BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>(p1, p2, particle_kill_list_, particle_copy_list_, phaseTransitionConfig){
-
+		phaseTransitionConfig->lookupValue("splittingLowT",this->splitting);
 	}
 protected:
 	virtual void Interaction(size_t index_i, Real dt = 0.0) override {
@@ -184,7 +186,7 @@ class phaseTransitionDynamicsHighT: public BasePhaseTransitionDynamics<Phase2Par
 public:
 	phaseTransitionDynamicsHighT(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list, StdLargeVec<size_t> &particle_copy_list, libconfig::Setting* phaseTransitionConfig):
 	BasePhaseTransitionDynamics<Phase2Particles,Phase1Particles>(p2, p1, particle_kill_list, particle_copy_list, phaseTransitionConfig){
-
+		phaseTransitionConfig->lookupValue("splittingHighT",this->splitting);
 	}
 protected:
 	virtual void Interaction(size_t index_i, Real dt = 0.0) override {
@@ -193,9 +195,11 @@ protected:
 };
 
 template<class Phase1Particles, class Phase2Particles>
-size_t BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::particleTransfer(size_t index_i){
-	size_t ret = n_particles_p2_++;
+size_t BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::particleTransfer(size_t index_i, Real newT){
+	size_t ret = n_particles_p2_+=pow(splitting,3.);
 	(*copy_a_particle_value_)(ret, index_i);
+	//mass_[ret]
+	temperature_p2_[ret] = newT;
 	particle_kill_list_[n_particles_to_kill_++] = index_i;
 	return ret;
 }
@@ -229,7 +233,7 @@ public:
 			printf("Warning: cache2 size %d less than the sum of particle bound %d, this may cause crash when all particles do phase transition at the same time\n", cache2.size(), p1.real_particles_bound_);
 			std::cout << __FILE__ << ':' << __LINE__ << std::endl;
 		}
-	}//The cache shared by other dynamics, recommanded.
+	}//The caches can be shared by other dynamics, recommanded.
 	void exec(Real dt = 0){
 		d1.exec();
 		d2.exec();
