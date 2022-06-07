@@ -51,9 +51,10 @@ namespace SPH
 	class BaseDiffusion : public BaseMaterial
 	{
 	public:
-		BaseDiffusion(size_t diffusion_species_index, size_t gradient_species_index)
+		BaseDiffusion(size_t diffusion_species_index, size_t gradient_species_index, Real diffusion_capacity = 1.)
 			: BaseMaterial(), diffusion_species_index_(diffusion_species_index),
-			  gradient_species_index_(gradient_species_index)
+			  gradient_species_index_(gradient_species_index),
+			  diffusion_capacity_(diffusion_capacity)
 		{
 			material_type_ = "BaseDiffusion";
 		};
@@ -61,8 +62,9 @@ namespace SPH
 
 		size_t diffusion_species_index_;
 		size_t gradient_species_index_;
-
+		Real diffusion_capacity_;
 		virtual Real getReferenceDiffusivity() = 0;
+		virtual Real getDiffusionCapacity(){return diffusion_capacity_;}
 		virtual Real getInterParticleDiffusionCoff(size_t particle_i, size_t particle_j, Vecd &direction_from_j_to_i) = 0;
 		virtual Real getContactDiffusionCoff(BaseDiffusion *contact_diffusion, Vecd &direction_from_j_to_i){
 			getInterParticleDiffusionCoff(0,0,direction_from_j_to_i);
@@ -80,8 +82,8 @@ namespace SPH
 
 	public:
 		IsotropicDiffusion(size_t diffusion_species_index, size_t gradient_species_index,
-						   Real diff_cf = 1.0)
-			: BaseDiffusion(diffusion_species_index, gradient_species_index),
+						   Real diff_cf = 1.0, Real diffusion_capacity = 1.)
+			: BaseDiffusion(diffusion_species_index, gradient_species_index, diffusion_capacity),
 			  diff_cf_(diff_cf)
 		{
 			material_type_ = "IsotropicDiffusion";
@@ -111,8 +113,8 @@ namespace SPH
 
 	public:
 		DirectionalDiffusion(size_t diffusion_species_index, size_t gradient_species_index,
-							 Real diff_cf, Real bias_diff_cf, Vecd bias_direction)
-			: IsotropicDiffusion(diffusion_species_index, gradient_species_index, diff_cf),
+							 Real diff_cf, Real bias_diff_cf, Vecd bias_direction, Real diffusion_capacity = 1.)
+			: IsotropicDiffusion(diffusion_species_index, gradient_species_index, diff_cf, diffusion_capacity),
 			  bias_direction_(bias_direction), bias_diff_cf_(bias_diff_cf),
 			  transformed_diffusivity_(1.0)
 		{
@@ -282,6 +284,7 @@ namespace SPH
 
 	public:
 		/** Constructor for material with diffusion only. */
+
 		template <typename... ConstructorArgs>
 		DiffusionReaction(StdVec<std::string> species_name_list, ConstructorArgs &&...args)
 			: BaseMaterialType(std::forward<ConstructorArgs>(args)...),

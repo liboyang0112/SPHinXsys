@@ -114,7 +114,7 @@ namespace SPH
 		StdVec<StdLargeVec<Real>> &diffusion_dt_prior_;
 		StdVec<size_t> species_diffusion_source_index_;
 		virtual void initializeDiffusionChangeRate(size_t particle_i);
-		virtual void getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij);
+		virtual void getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij, Real particle_density = 1.);
 		virtual void updateSpeciesDiffusion(size_t particle_i, Real dt);
 		virtual void Interaction(size_t index_i, Real dt = 0.0) override;
 		virtual void Update(size_t index_i, Real dt = 0.0) override;

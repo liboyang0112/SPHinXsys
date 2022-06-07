@@ -53,19 +53,19 @@ namespace SPH
 	//=================================================================================================//
 	template <class BodyType, class BaseParticlesType, class BaseMaterialType>
 	void RelaxationOfAllDiffussionSpeciesInner<BodyType, BaseParticlesType, BaseMaterialType>::
-		getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij)
+		getDiffusionChangeRate(size_t particle_i, size_t particle_j, Vecd &e_ij, Real surface_area_ij, Real particle_density_rate)
 	{		
-		if(particle_i == 576){
-			int halt = 1;
-		}
-
 		for (size_t m = 0; m < species_diffusion_.size(); ++m)
 		{
 			Real diff_coff_ij = species_diffusion_[m]->getInterParticleDiffusionCoff(particle_i, particle_j, e_ij);
 			size_t l = species_diffusion_[m]->gradient_species_index_;
 			Real phi_ij = species_n_[l][particle_i] - species_n_[l][particle_j];
 			Real diff_ch_rate = diff_coff_ij * phi_ij * surface_area_ij;
-			diffusion_dt_[m][particle_i] += diff_ch_rate;
+			//dC/dt = -K/rho*laplacian(C)
+			//K = K0*rho1*rho2/(rho1+rho2)
+			//diff_coff_ij = K0
+			//particle_density_rate = K/rho1/K0 = rho2/(rho1+rho2);
+			diffusion_dt_[m][particle_i] += diff_ch_rate * particle_density_rate / species_diffusion_[m]->getDiffusionCapacity();
 			assert(diffusion_dt_[m][particle_i] == diffusion_dt_[m][particle_i]);
 		}
 	}
@@ -95,10 +95,10 @@ namespace SPH
 			if(dW_ij_ == 0) continue;
 			Real r_ij_ = inner_neighborhood.r_ij_[n];
 			Vecd &e_ij = inner_neighborhood.e_ij_[n];
-
+			Real rho_b = particles->rho_n_[index_j];
 			const Vecd &grad_ij = particles->getKernelGradient(index_i, index_j, dW_ij_, e_ij);
 			Real area_ij = 2.0 * Vol_[index_j] * dot(grad_ij, e_ij) / r_ij_;
-			getDiffusionChangeRate(index_i, index_j, e_ij, area_ij);
+			getDiffusionChangeRate(index_i, index_j, e_ij, area_ij, rho_b/(rho_b+particles->rho_n_[index_i]));
 		}
 	}
 	//=================================================================================================//
@@ -158,7 +158,6 @@ namespace SPH
 		{
 			StdLargeVec<Real> &Vol_k = *(contact_Vol_[k]);
 			StdVec<StdLargeVec<Real>> &species_n_k = *(contact_species_n_[k]);
-
 			Neighborhood &contact_neighborhood = (*this->contact_configuration_[k])[index_i];
 			for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
 			{
@@ -167,20 +166,18 @@ namespace SPH
 				Real dW_ij_ = contact_neighborhood.dW_ij_[n];
 				Vecd &e_ij = contact_neighborhood.e_ij_[n];
 
+				Real rho_b = this->contact_particles_[k]->rho_n_[index_j];
 				const Vecd &grad_ij = particles->getKernelGradient(index_i, index_j, dW_ij_, e_ij);
 				Real area_ij = 2.0 * Vol_k[index_j] * dot(grad_ij, e_ij) / r_ij_;
 
 				for (size_t m = 0; m < species_diffusion_.size(); ++m)
 				{
-					if(area_ij!=area_ij){
-						int halt = 1;
-					}
 					contactdiffusion = (DiffusionReaction<ContactBaseParticlesType, ContactBaseMaterialType> *)this->contact_material_[k];
 					Real diff_coff_ij = species_diffusion_[m]->getContactDiffusionCoff(contactdiffusion->SpeciesDiffusion()[m], e_ij);
 					size_t l = species_diffusion_[m]->gradient_species_index_;
 					Real phi_ij = species_n_[l][index_i] - species_n_k[l][index_j];
-					diffusion_dt_[m][index_i] += diff_coff_ij * phi_ij * area_ij;
-					//assert(diffusion_dt_[m][index_i]==diffusion_dt_[m][index_i]);
+					diffusion_dt_[m][index_i] += diff_coff_ij * phi_ij * area_ij * rho_b / (rho_b+particles->rho_n_[index_i]) / species_diffusion_[m]->getDiffusionCapacity();
+					assert(diffusion_dt_[m][index_i]==diffusion_dt_[m][index_i]);
 				}
 			}
 		}

@@ -101,6 +101,7 @@ class BasePhaseTransitionDynamics : public InteractionDynamics{
 	std::atomic_size_t n_particles_p2_;
 	StdLargeVec<size_t> &particle_kill_list_;
 	StdLargeVec<size_t> &particle_copy_list_;
+	StdVec<Vecd> displacements;
 	char* transitionParName;
 	std::unique_ptr<DualParticleDataOperation<copyAParticleDataValueFromOtherParticles>> copy_a_particle_value_;
 
@@ -120,6 +121,23 @@ public:
 		latent_heat_storage_.resize(p1.real_particles_bound_, Real(0));
 		p1.template registerAVariable<indexScalar, Real>(latent_heat_storage_, "LatentHeatStorage");
 		copy_a_particle_value_ = make_unique<DualParticleDataOperation<copyAParticleDataValueFromOtherParticles>>(p2,p1);
+	}
+	void initializeDisplacements(){
+		Real d = this->sph_adaptation_->ReferenceSpacing();
+		displacements.resize(pow(splitting,Dimensions),Vecd(0.5*d/splitting-0.5*d));
+		for(int i = 0; i<splitting ; i++){
+			displacements[i][0] += i*d/splitting;
+		}
+		int length = splitting;
+		for(int N = 1; N < Dimensions; N++){
+			for(int i = 1; i<splitting ; i++){
+				for(int j = 0; j<length ; j++){
+					displacements[length*i+j] = displacements[j];
+					displacements[length*i+j][N] += i*d/splitting;
+				}
+			}
+			length *= splitting;
+		}
 	}
 	size_t particleTransfer(size_t index_i, Real newT);
 	void updateList(){
@@ -160,8 +178,7 @@ void BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::processLatent
 		if((latent_heat_storage_[index_i]+=dT) >= latent_heat_){
 			Real extra = latent_heat_storage_[index_i]-latent_heat_;
 			latent_heat_storage_[index_i] = 0;
-			size_t targetid = particleTransfer(index_i, transfer_T_-pi*extra);
-			temperature_p2_[targetid] = transfer_T_-pi*extra;
+			particleTransfer(index_i, transfer_T_-pi*extra);
 		}else{
 			temperature_[index_i] = transfer_T_;
 		}
@@ -174,6 +191,7 @@ public:
 	phaseTransitionDynamicsLowT(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list_, StdLargeVec<size_t> &particle_copy_list_, libconfig::Setting* phaseTransitionConfig):
 	BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>(p1, p2, particle_kill_list_, particle_copy_list_, phaseTransitionConfig){
 		phaseTransitionConfig->lookupValue("splittingLowT",this->splitting);
+		if(this->splitting > 1) this->initializeDisplacements();
 	}
 protected:
 	virtual void Interaction(size_t index_i, Real dt = 0.0) override {
@@ -187,6 +205,7 @@ public:
 	phaseTransitionDynamicsHighT(Phase1Particles &p1, Phase2Particles &p2, StdLargeVec<size_t> &particle_kill_list, StdLargeVec<size_t> &particle_copy_list, libconfig::Setting* phaseTransitionConfig):
 	BasePhaseTransitionDynamics<Phase2Particles,Phase1Particles>(p2, p1, particle_kill_list, particle_copy_list, phaseTransitionConfig){
 		phaseTransitionConfig->lookupValue("splittingHighT",this->splitting);
+		if(this->splitting > 1) this->initializeDisplacements();
 	}
 protected:
 	virtual void Interaction(size_t index_i, Real dt = 0.0) override {
@@ -196,10 +215,15 @@ protected:
 
 template<class Phase1Particles, class Phase2Particles>
 size_t BasePhaseTransitionDynamics<Phase1Particles,Phase2Particles>::particleTransfer(size_t index_i, Real newT){
-	size_t ret = n_particles_p2_+=pow(splitting,3.);
-	(*copy_a_particle_value_)(ret, index_i);
-	//mass_[ret]
-	temperature_p2_[ret] = newT;
+	int splitN = pow(splitting,Dimensions);
+	size_t ret = n_particles_p2_.fetch_add(splitN);
+	for(int i = 0; i< splitN; i++){
+		size_t target = ret+i;
+		(*copy_a_particle_value_)(target, index_i);
+		p2_.mass_[target] /= splitN;
+		temperature_p2_[target] = newT;
+		if(splitN>1) p2_.pos_n_[target] += displacements[i];
+	}
 	particle_kill_list_[n_particles_to_kill_++] = index_i;
 	return ret;
 }
